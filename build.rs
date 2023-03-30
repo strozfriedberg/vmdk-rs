@@ -33,4 +33,6 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=ksy/sparse.ksy");
+    println!("cargo:rerun-if-changed=ksy/vmware_vmdk.ksy");
 }
