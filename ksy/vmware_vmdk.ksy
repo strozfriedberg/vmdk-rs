@@ -57,9 +57,11 @@ instances:
     pos: start_descriptor * _root.len_sector
     size: size_descriptor * _root.len_sector
   grain_primary:
+    #type: u4
     pos: start_primary_grain * _root.len_sector
     size: size_grain * _root.len_sector
   grain_secondary:
+    #type: u4
     pos: start_secondary_grain * _root.len_sector
     size: size_grain * _root.len_sector
 types:
