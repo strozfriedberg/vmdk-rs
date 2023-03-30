@@ -5,6 +5,7 @@ use self::kaitai::*;
 
 pub mod generated;
 use generated::sparse_extent_header::*;
+use generated::vmware_vmdk::*;
 
 #[cfg(test)]
 mod tests {
