@@ -33,10 +33,18 @@ fn main() {
 
     println!("header: {header:?}");
 
+    let mut i = 0;
     let h: VmwareVmdk = header.get().as_ref().to_owned();
-    if let Ok(grains) = &h.grain_primary() {
-        for entry in grains.deref() {
-            println!("{}", entry);
+    if let Ok(grains) = &h.grain_secondary() {
+        let entries = grains.deref().as_slice();
+        let (_, entries, _) = unsafe { entries.align_to::<u32>() };
+
+        for entry in entries {
+            println!("{entry} ({entry:#04X})");
+            i += 1;
+            if i > 20 {
+                break;
+            }
         }
     };
 }
