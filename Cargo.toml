@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
+clap = { version = "4.1.7", features = ["derive"] }
