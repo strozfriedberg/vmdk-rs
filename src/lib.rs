@@ -6,6 +6,7 @@ use self::kaitai::*;
 pub mod generated;
 use generated::sparse_extent_header::*;
 use generated::vmware_vmdk::*;
+use generated::mbr_partition_table::*;
 
 #[cfg(test)]
 mod tests {
