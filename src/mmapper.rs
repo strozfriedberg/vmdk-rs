@@ -41,7 +41,7 @@ impl MMapper {
 }
 
 impl Read for MMapper {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.start as usize;
         let len = buf.len();
         let e = n + len;
