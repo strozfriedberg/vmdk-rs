@@ -1,7 +1,7 @@
 // https://www.sweetscape.com/010editor/repository/files/Drive.bt
 // Partition Types
 #[allow(non_camel_case_types)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum PartitionType {
    PARTITION_SYSTEMID_EMPTY                          = 0,
