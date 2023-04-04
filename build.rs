@@ -50,7 +50,12 @@ fn main() {
             .expect("failed to execute process");
     let errors = output.stderr;
     if !errors.is_empty() {
-        panic!("{}", str::from_utf8(&errors).unwrap());
+        let messages = str::from_utf8(&errors).unwrap();
+        for message in messages.lines() {
+            if message.trim().starts_with("error:") {
+                panic!("{}", messages);
+            }
+        }
     }
 
     if let Ok(entries) = fs::read_dir(out_dir) {
