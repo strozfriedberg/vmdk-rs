@@ -5,6 +5,7 @@ use clap::Parser;
 //use generated::sparse_extent_header::*;
 use generated::vmware_vmdk::*;
 use generated::mbr_partition_table::*;
+use generated::gpt_partition_table::*;
 
 use self::kaitai::*;
 
@@ -58,14 +59,33 @@ fn main() {
         let partition_table = partition_table.get().as_ref().to_owned();
         for partition in &*partition_table.partitions() {
             let partition = partition.get();
-            let partition_type: PartitionType = unsafe { std::mem::transmute(*partition.partition_type()) };
-            // let partition_type = num::FromPrimitive::from_u8(*partition.partition_type());
-            // let partition_type = if let Some(pt) = num::FromPrimitive::from_u8(*partition.partition_type()) {
-            //     format!("{:?}", pt::<PartitionType>)
-            // } else {
-            //     format!("Unknown partition type {}", partition.partition_type())
-            // };
-            println!("status: {}, partition_type {:?}, num_sectors: {}", partition.status(), partition_type, partition.num_sectors());
+            let part_type_value = *partition.partition_type();
+            let partition_type: PartitionType = unsafe { std::mem::transmute(part_type_value) };
+            let lba_start = *partition.lba_start() as usize;
+            println!("status: {}, partition_type {:?} ({:02X}), num_sectors: {}, lba_start: {lba_start}",
+                     partition.status(), partition_type, part_type_value, partition.num_sectors());
+
+            match partition_type {
+                PartitionType::PARTITION_SYSTEMID_EMPTY => {}
+                PartitionType::PARTITION_SYSTEMID_LEGACY_MBR_EFI_HEADER => {
+                    let gpt_part_offs = boot_sector_offs + lba_start * 0x200;
+                    println!("gpt_part_offs: {gpt_part_offs:08X}");
+                    let gpt_part_data = data.align_to::<[u8; 0x200]>(gpt_part_offs).to_vec();
+                    let _io = BytesReader::from(gpt_part_data);
+                    let gpt_part: OptRc<GptPartitionTable> = match GptPartitionTable::read_into(&_io, None, None) {
+                        Ok(gpt) => gpt,
+                        Err(e) => panic!("{:?}", e),
+                    };
+                    println!("sector_size {:?}", gpt_part.sector_size());
+                    println!("primary {:?}", gpt_part.primary());
+                    println!("backup {:?}", gpt_part.backup());
+                    if let Ok(header) = &gpt_part.primary() {
+                        let header = header.get();
+                        println!("{header:?}");
+                    };
+                }
+                _ => panic!("no implementation for {partition_type:?}"),
+            }
         }
     };
 }
