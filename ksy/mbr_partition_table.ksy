@@ -4,8 +4,9 @@ meta:
   xref:
     forensicswiki: Master_boot_record
     wikidata: Q624752
+  ks-version: 0.9
   tags:
-    - dos
+    - ntfs filesystem
   license: CC0-1.0
   endian: le
 doc: |
@@ -42,6 +43,9 @@ types:
         type: u4
       - id: num_sectors
         type: u4
+    instances:
+      partition_offset:
+        value: lba_start * 0x200
   chs:
     seq:
       - id: head
