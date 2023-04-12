@@ -14,7 +14,7 @@ instances:
     # Default is 0x200 for 512 byte sectors, set to 0x1000 to parse 4096 byte sectors.
   primary:
     io: _root._io
-    pos: _root.sector_size
+    pos: 0  #_root.sector_size
     type: partition_header
   backup:
     io: _root._io
@@ -60,7 +60,7 @@ types:
       - id: disk_guid
         size: 0x10
       - id: entries_start
-        type: u8
+        type: s8
       - id: entries_count
         type: u4
       - id: entries_size
