@@ -9,7 +9,7 @@
   endian: le
 doc-ref: https://flatcap.github.io/linux-ntfs/ntfs/concepts/attribute_header.html
 seq:
-  - id: type
+  - id: attr_type
     type: u4
     enum: symbols::attr_type_enum
   - id: length                    # including this header

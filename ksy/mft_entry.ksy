@@ -67,9 +67,9 @@ types:
       type: attribute_header
       parent: _parent
     - id: attribute_body
-      terminator: 0xffff # 0xffffffff
+      terminator: 0xff # 0xffffffff
       type: 
-        switch-on: attribute_header.type
+        switch-on: attribute_header.attr_type
         cases:
           symbols::attr_type_enum::standard_information: standard_information_attribute(is_2k)
           _: undefined_yet
