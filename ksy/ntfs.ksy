@@ -46,3 +46,6 @@ instances:
   mft:
     pos: mft_offset_0
     type: mft_entry
+  mft_mirr:
+    pos: mft_mirror_offset_0
+    type: mft_entry
