@@ -38,6 +38,10 @@ impl MMapper {
     pub fn get_cursor(&self, start: usize, end: usize) -> io::Cursor<&[u8]> {
         io::Cursor::new(&self.mmap[start..end])
     }
+
+    pub fn as_vec(&self, offset: usize, end: usize) -> Vec<u8> {
+        self.mmap[offset..end].to_vec()
+    }
 }
 
 impl Read for MMapper {
