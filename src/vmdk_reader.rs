@@ -10,6 +10,8 @@ use std::ops::Deref;
 use std::path::Path;
 
 extern crate kaitai;
+use crate::vmdk_reader;
+
 use self::kaitai::*;
 
 use vmdk::generated::vmware_vmdk::*;
@@ -62,6 +64,10 @@ pub struct VmdkReader {
 enum Kind {
     SPARSE,
     FLAT,
+    ZERO,
+    VMFS,
+    VMFSSPARSE,
+    VMFSRDM,
 }
 
 impl Kind {
@@ -69,17 +75,21 @@ impl Kind {
         match value {
             "SPARSE" => Some(Self::SPARSE),
             "FLAT" => Some(Self::FLAT),
+            "ZERO" => Some(Self::ZERO),
+            "VMFS" => Some(Self::VMFS),
+            "VMFSSPARSE" => Some(Self::VMFSSPARSE),
+            "VMFSRDM" => Some(Self::VMFSRDM),
             _ => panic!("Unknown extent descriptor KIND: {}", value),
         }
     }
 }
 
 #[derive(Debug)]
-struct RW {
+struct ED {
     sectors: u64,
     kind: Kind,
     filename: String,
-    _unknown: u64,
+    _start_sector: u64,
 }
 
 impl VmdkReader {
@@ -102,45 +112,47 @@ impl VmdkReader {
         Ok(header)
     }
 
-    fn extract_rw_values(descriptor: &str) -> Result<Vec<RW>, SimpleError> {
-        let mut rw: Vec<RW> = Vec::new();
+    fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
+        let mut ed: Vec<ED> = Vec::new();
 
         for line in descriptor.lines() {
-            if let Some(captures) = regex::Regex::new(r#"^RW (\d+) (\w+) "(.+)"(?: (\d+))?$"#)
-                .unwrap()
-                .captures(line)
+            if let Some(captures) =
+                regex::Regex::new(r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#)
+                    .unwrap()
+                    .captures(line)
             {
-                let sectors = captures[1].to_string().parse::<u64>().map_err(|e| {
+                // ignore access mode (captures[1])
+                let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
                     SimpleError::new(format!(
                         "can't parse value '{}' to u64: {:?}",
-                        captures[1].to_string(),
+                        captures[2].to_string(),
                         e
                     ))
                 })?;
-                let kind = Kind::from_str(&captures[2].to_string()).ok_or(SimpleError::new(
-                    format!("can't parse {} to Kind enum", captures[2].to_string()),
+                let kind = Kind::from_str(&captures[3].to_string()).ok_or(SimpleError::new(
+                    format!("can't parse {} to Kind enum", captures[3].to_string()),
                 ))?;
-                let filename = captures[3].to_string();
-                let _unknown = match captures.get(4) {
+                let filename = captures[4].to_string();
+                let _start_sector = match captures.get(5) {
                     Some(v) => v.as_str().to_string().parse::<u64>().map_err(|e| {
                         SimpleError::new(format!(
                             "can't parse value '{}' to u64: {:?}",
-                            captures[1].to_string(),
+                            captures[5].to_string(),
                             e
                         ))
                     })?,
                     None => 0,
                 };
-                rw.push(RW {
+                ed.push(ED {
                     sectors,
                     kind,
                     filename,
-                    _unknown,
+                    _start_sector,
                 });
             }
         }
 
-        Ok(rw)
+        Ok(ed)
     }
 
     pub fn open<T: AsRef<Path>>(f: T) -> Result<Self, SimpleError> {
@@ -160,11 +172,14 @@ impl VmdkReader {
             }
         };
         //println!("{descriptor}");
-        let mut rw = Self::extract_rw_values(&descriptor)?;
+        let mut ed = Self::extract_ed_values(&descriptor)?;
         let mut extents: Vec<ExtentDesc> = Vec::new();
         let mut grain_size = 512u64;
         let mut grain_table_start_index = 0;
-        for i in &mut rw {
+        for i in &mut ed {
+            if i.kind != Kind::SPARSE && i.kind != Kind::FLAT {
+                todo!("TODO: support {:?}", i.kind);
+            }
             let ed_fn = f.as_ref().with_file_name(&i.filename);
             let grain_table = if i.kind == Kind::SPARSE {
                 let header = Self::open_bin(&ed_fn)?;
@@ -196,7 +211,7 @@ impl VmdkReader {
         for i in 1..extents.len() {
             extents[i].start_sector = extents[i - 1].start_sector + extents[i - 1].sectors;
         }
-        let total_size = rw.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
+        let total_size = ed.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
         Ok(Self {
             total_size,
             grain_size,
