@@ -231,8 +231,13 @@ impl VmdkReader {
             number_of_grain_directory_entries += 1;
         }
         let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
+        let grain_dir = if *h.flags().use_secondary_grain_dir() {
+            h.grain_secondary()
+        } else {
+            h.grain_primary()
+        };
         // get and read metadata-0
-        if let Ok(grains) = &h.grain_secondary() {
+        if let Ok(grains) = &grain_dir {
             let truncated_grains = &(*grains)[..number_of_grain_directory_entries as usize * 4];
             let grain_dir_entries: Vec<usize> = truncated_grains
                 .chunks_exact(4)
