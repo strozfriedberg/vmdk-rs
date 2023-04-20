@@ -33,6 +33,9 @@ struct ExtentDesc {
     kind: Kind,
     // only if Kind == SPARSE
     grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
+    // the zeroed‐grain table entry overloads grain data sector number 1 to indicate the grain is sparse
+    zero_grain_table_entry: bool,
+    has_compressed_grain: bool, // TODO handle
 }
 
 impl fmt::Debug for ExtentDesc {
@@ -181,8 +184,12 @@ impl VmdkReader {
                 todo!("TODO: support {:?}", i.kind);
             }
             let ed_fn = f.as_ref().with_file_name(&i.filename);
+            let mut zero_grain_table_entry = false;
+            let mut has_compressed_grain = false;
             let grain_table = if i.kind == Kind::SPARSE {
                 let header = Self::open_bin(&ed_fn)?;
+                zero_grain_table_entry = *header.flags().zeroed_grain_table_entry();
+                has_compressed_grain = *header.flags().has_compressed_grain();
                 grain_size = *header.size_grain() as u64;
                 Some(Self::read_grain_table(
                     &mut grain_table_start_index,
@@ -204,6 +211,8 @@ impl VmdkReader {
                 sectors: i.sectors,
                 kind: i.kind,
                 grain_table,
+                zero_grain_table_entry: zero_grain_table_entry,
+                has_compressed_grain,
             };
             assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
             extents.push(ed);
@@ -236,18 +245,26 @@ impl VmdkReader {
         } else {
             h.grain_primary()
         };
+        let sparse_value = if *h.flags().zeroed_grain_table_entry() {
+            1
+        } else {
+            0
+        };
         // get and read metadata-0
         if let Ok(grains) = &grain_dir {
             let truncated_grains = &(*grains)[..number_of_grain_directory_entries as usize * 4];
-            let grain_dir_entries: Vec<usize> = truncated_grains
+            let grain_dir_entries: Vec<u64> = truncated_grains
                 .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as usize * 512)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
                 .collect();
             // get and read metadata-1
             let grain_table1_size = *h.num_grain_table_entries() as usize * 4;
             for grain_table_offset in grain_dir_entries {
+                if grain_table_offset == sparse_value {
+                    continue;
+                }
                 h._io()
-                    .seek(grain_table_offset)
+                    .seek(grain_table_offset as usize)
                     .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
 
                 let grain_table: Vec<u64> = h
@@ -259,14 +276,14 @@ impl VmdkReader {
                     .collect();
 
                 for i in 0..grain_table.len() {
-                    if grain_table[i] > 0 {
-                        let old = grain_table_all
-                            .insert(*grain_table_start_index + i as u64, grain_table[i]);
-                        debug_assert!(old.is_none());
+                    if grain_table[i] == sparse_value {
+                        continue;
                     }
+                    let old =
+                        grain_table_all.insert(*grain_table_start_index + i as u64, grain_table[i]);
+                    debug_assert!(old.is_none());
                 }
                 *grain_table_start_index += grain_table.len() as u64;
-                //println!("{:?}", grain_table_all);
             }
         }
         Ok(grain_table_all)
