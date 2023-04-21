@@ -1,11 +1,10 @@
 extern crate kaitai;
 
 use clap::Parser;
-use std::fs::File;
-use std::io::prelude::*;
 
 pub mod generated;
 pub mod vmdk_reader;
+use sha1::{Digest, Sha1};
 use vmdk_reader::VmdkReader;
 
 mod mmapper;
@@ -15,10 +14,8 @@ mod mmapper;
 
 #[derive(Parser)]
 struct Cli {
-    /// Path to disk image
+    /// Path to vmdk disk image
     vmdk_path: String,
-    /// Path to dump file (will be created)
-    dump_path: String,
 }
 
 fn main() {
@@ -29,7 +26,7 @@ fn main() {
     let vmdk_reader = VmdkReader::open(&cli.vmdk_path).unwrap();
     println!("{vmdk_reader:?}");
 
-    let mut file = File::create(cli.dump_path.clone()).unwrap();
+    let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];
     let mut offset = 0;
     while offset < vmdk_reader.total_size {
@@ -40,7 +37,11 @@ fn main() {
                 panic!("{:?}", e);
             }
         };
-        file.write_all(&buf[..readed]).unwrap();
+
+        hasher.update(&buf[..readed]);
+
         offset += readed as u64;
     }
+    let result = hasher.finalize();
+    println!("{} {:X}\n", cli.vmdk_path, result);
 }

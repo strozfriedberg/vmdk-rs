@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::LinkedList;
 use std::fmt;
 use std::fs;
 use std::fs::File;
@@ -8,9 +9,9 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::ops::Deref;
 use std::path::Path;
+use std::path::PathBuf;
 
 extern crate kaitai;
-use crate::vmdk_reader;
 
 use self::kaitai::*;
 
@@ -33,8 +34,7 @@ struct ExtentDesc {
     kind: Kind,
     // only if Kind == SPARSE
     grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
-    // the zeroed‐grain table entry overloads grain data sector number 1 to indicate the grain is sparse
-    zero_grain_table_entry: bool,
+    grain_size: u64,
     has_compressed_grain: bool, // TODO handle
 }
 
@@ -59,8 +59,7 @@ impl fmt::Debug for ExtentDesc {
 #[derive(Debug)]
 pub struct VmdkReader {
     pub total_size: u64,
-    grain_size: u64,
-    extents: Vec<ExtentDesc>,
+    extents: LinkedList<Vec<ExtentDesc>>,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -115,6 +114,18 @@ impl VmdkReader {
         Ok(header)
     }
 
+    fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
+        for line in descriptor.lines() {
+            if let Some(captures) = regex::Regex::new(r#"^parentFileNameHint="([^"]+)"#)
+                .unwrap()
+                .captures(line)
+            {
+                return Some(captures[1].to_string());
+            }
+        }
+        None
+    }
+
     fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
         let mut ed: Vec<ED> = Vec::new();
 
@@ -159,36 +170,69 @@ impl VmdkReader {
     }
 
     pub fn open<T: AsRef<Path>>(f: T) -> Result<Self, SimpleError> {
-        let descriptor: String = {
-            let header = Self::open_bin(&f);
-            let text_format = header.is_err();
-            if text_format {
-                fs::read_to_string(&f).map_err(|e| {
-                    SimpleError::new(format!(
-                        "Error while reading the file {}: {:?}",
-                        f.as_ref().to_string_lossy(),
-                        e
-                    ))
-                })?
+        let mut total_size = 0;
+        let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
+        let mut current_fn = PathBuf::from(f.as_ref());
+        loop {
+            let descriptor = Self::read_descriptor(current_fn.as_path())?;
+            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor)?;
+            let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
+            if total_size == 0 {
+                total_size = total_size0;
             } else {
-                String::from_utf8(header?.descriptor().unwrap().deref().to_vec()).unwrap()
+                if total_size != total_size0 {
+                    return Err(SimpleError::new(format!(
+                        "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
+                        total_size, total_size0, current_fn.to_string_lossy()
+                    )));
+                }
             }
+            extents.push_back(extents0);
+            if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
+                current_fn.set_file_name(next_fn);
+            } else {
+                break;
+            }
+        }
+        Ok(Self {
+            total_size,
+            extents,
+        })
+    }
+
+    fn read_descriptor<T: AsRef<Path>>(f: T) -> Result<String, SimpleError> {
+        let header = Self::open_bin(&f);
+        let text_format = header.is_err();
+        let descriptor = if text_format {
+            fs::read_to_string(&f).map_err(|e| {
+                SimpleError::new(format!(
+                    "Error while reading the file {}: {:?}",
+                    f.as_ref().to_string_lossy(),
+                    e
+                ))
+            })?
+        } else {
+            String::from_utf8(header?.descriptor().unwrap().deref().to_vec()).unwrap()
         };
-        //println!("{descriptor}");
-        let mut ed = Self::extract_ed_values(&descriptor)?;
+        Ok(descriptor)
+    }
+
+    fn read_extents<T: AsRef<Path>>(
+        f: T,
+        descriptor: &str,
+    ) -> Result<Vec<ExtentDesc>, SimpleError> {
+        let mut ed = Self::extract_ed_values(descriptor)?;
         let mut extents: Vec<ExtentDesc> = Vec::new();
-        let mut grain_size = 512u64;
+        let mut grain_size = 0;
         let mut grain_table_start_index = 0;
         for i in &mut ed {
             if i.kind != Kind::SPARSE && i.kind != Kind::FLAT {
                 todo!("TODO: support {:?}", i.kind);
             }
             let ed_fn = f.as_ref().with_file_name(&i.filename);
-            let mut zero_grain_table_entry = false;
             let mut has_compressed_grain = false;
             let grain_table = if i.kind == Kind::SPARSE {
                 let header = Self::open_bin(&ed_fn)?;
-                zero_grain_table_entry = *header.flags().zeroed_grain_table_entry();
                 has_compressed_grain = *header.flags().has_compressed_grain();
                 grain_size = *header.size_grain() as u64;
                 Some(Self::read_grain_table(
@@ -211,7 +255,7 @@ impl VmdkReader {
                 sectors: i.sectors,
                 kind: i.kind,
                 grain_table,
-                zero_grain_table_entry: zero_grain_table_entry,
+                grain_size,
                 has_compressed_grain,
             };
             assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
@@ -220,12 +264,7 @@ impl VmdkReader {
         for i in 1..extents.len() {
             extents[i].start_sector = extents[i - 1].start_sector + extents[i - 1].sectors;
         }
-        let total_size = ed.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
-        Ok(Self {
-            total_size,
-            grain_size,
-            extents,
-        })
+        Ok(extents)
     }
 
     fn read_grain_table(
@@ -289,20 +328,20 @@ impl VmdkReader {
         Ok(grain_table_all)
     }
 
-    pub fn get_grain_table(&self) -> Result<&HashMap<u64, u64>, SimpleError> {
-        Ok(self.extents[0].grain_table.as_ref().unwrap())
-    }
-
-    fn get_extent_from_offset(&self, offset: u64, local_offset: &mut u64) -> Option<&ExtentDesc> {
+    fn get_extent_from_offset<'a>(
+        extents: &'a Vec<ExtentDesc>,
+        offset: u64,
+        local_offset: &mut u64,
+    ) -> Option<&'a ExtentDesc> {
         let sector_num = offset / 512;
 
-        for i in 0..self.extents.len() {
-            if sector_num >= self.extents[i].start_sector
-                && sector_num < self.extents[i].start_sector + self.extents[i].sectors
+        for i in 0..extents.len() {
+            if sector_num >= extents[i].start_sector
+                && sector_num < extents[i].start_sector + extents[i].sectors
             {
-                return Some(&self.extents[i]);
+                return Some(&extents[i]);
             } else {
-                *local_offset -= self.extents[i].sectors * 512;
+                *local_offset -= extents[i].sectors * 512;
             }
         }
 
@@ -312,71 +351,79 @@ impl VmdkReader {
     pub fn read_at_offset(&self, mut offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
         let sector_size = 512;
         let mut bytes_read = 0;
+        let mut grain_size = 0;
 
         while bytes_read < buf.len() {
-            let mut local_offset = offset;
-            let extent_desc = match self.get_extent_from_offset(offset, &mut local_offset) {
-                Some(e) => e,
-                None => break,
-            };
-
-            let sparse = extent_desc.kind == Kind::SPARSE;
-
-            let grain_size = if sparse {
-                self.grain_size * sector_size
-            } else {
-                // whole file is a big grain
-                extent_desc.sectors * sector_size
-            };
-
-            let remaining_buf = &mut buf[bytes_read..];
-            let remaining_size = remaining_buf.len();
-            let remaining_grain_size =
-                remaining_size.min((grain_size - (local_offset % grain_size)) as usize);
-
-            if sparse {
-                // calculate grain index and offset
-                let grain_index = offset / grain_size;
-                let grain_data_offset = offset % grain_size;
-
-                if !extent_desc
-                    .grain_table
-                    .as_ref()
-                    .unwrap()
-                    .contains_key(&grain_index)
+            for (ex_pos, ex) in self.extents.iter().enumerate() {
+                let mut local_offset = offset;
+                let extent_desc = match Self::get_extent_from_offset(ex, offset, &mut local_offset)
                 {
-                    remaining_buf[..remaining_grain_size].fill(0);
-                } else {
-                    // calculate real sector
-                    let sector_num = *extent_desc
+                    Some(e) => e,
+                    None => break,
+                };
+
+                let sparse = extent_desc.kind == Kind::SPARSE;
+                if sparse {
+                    grain_size = extent_desc.grain_size * sector_size;
+                }
+
+                let remaining_buf = &mut buf[bytes_read..];
+                let remaining_size = remaining_buf.len();
+                let remaining_grain_size =
+                    remaining_size.min((grain_size - (local_offset % grain_size)) as usize);
+
+                if sparse {
+                    // calculate grain index and offset
+                    let grain_index = offset / grain_size;
+                    let grain_data_offset = offset % grain_size;
+
+                    if !extent_desc
                         .grain_table
                         .as_ref()
                         .unwrap()
-                        .get(&grain_index)
-                        .unwrap();
-                    let seek_pos = sector_num * sector_size + grain_data_offset;
+                        .contains_key(&grain_index)
+                    {
+                        // if this is last vmdk-file
+                        if ex_pos == self.extents.len() - 1 {
+                            remaining_buf[..remaining_grain_size].fill(0);
+                        } else {
+                            // check in next
+                            continue;
+                        }
+                    } else {
+                        // calculate real sector
+                        let sector_num = *extent_desc
+                            .grain_table
+                            .as_ref()
+                            .unwrap()
+                            .get(&grain_index)
+                            .unwrap();
+                        let seek_pos = sector_num * sector_size + grain_data_offset;
+                        extent_desc
+                            .file
+                            .borrow_mut()
+                            .seek(SeekFrom::Start(seek_pos))?;
+                        extent_desc
+                            .file
+                            .borrow_mut()
+                            .read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                    }
+                } else {
+                    // FLAT
                     extent_desc
                         .file
                         .borrow_mut()
-                        .seek(SeekFrom::Start(seek_pos))?;
+                        .seek(SeekFrom::Start(local_offset))?;
                     extent_desc
                         .file
                         .borrow_mut()
                         .read_exact(&mut remaining_buf[..remaining_grain_size])?;
                 }
-            } else {
-                // FLAT
-                extent_desc
-                    .file
-                    .borrow_mut()
-                    .seek(SeekFrom::Start(local_offset))?;
-                extent_desc
-                    .file
-                    .borrow_mut()
-                    .read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                bytes_read += remaining_grain_size;
+                offset += remaining_grain_size as u64;
+                // look for next piece of data from the first extent descriptor
+                break;
             }
-            bytes_read += remaining_grain_size;
-            offset += remaining_grain_size as u64;
         }
 
         Ok(bytes_read)
