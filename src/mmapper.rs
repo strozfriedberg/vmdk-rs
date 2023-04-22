@@ -1,5 +1,9 @@
 #![allow(dead_code)]
-use std::{io::{self, SeekFrom, Read}, path::Path, fs::File};
+use std::{
+    fs::File,
+    io::{self, Read, SeekFrom},
+    path::Path,
+};
 
 use memmap2::Mmap;
 
@@ -14,7 +18,9 @@ impl MMapper {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let path_str = path.as_ref().display().to_string();
         let file = File::open(&path).unwrap_or_else(|_| panic!("Could not open '{path_str}'"));
-        let mmap = unsafe { Mmap::map(&file).unwrap_or_else(|_| panic!("Could not create mmap on '{path_str}'"))  };
+        let mmap = unsafe {
+            Mmap::map(&file).unwrap_or_else(|_| panic!("Could not create mmap on '{path_str}'"))
+        };
         let size = mmap.len();
 
         MMapper {
@@ -39,8 +45,9 @@ impl MMapper {
         io::Cursor::new(&self.mmap[start..end])
     }
 
-    pub fn as_vec(&self, offset: usize, end: usize) -> Vec<u8> {
-        self.mmap[offset..end].to_vec()
+    pub fn get_bytes(&self, offset: usize, size: usize) -> &[u8] {
+        let s = &self.mmap[offset..offset + size];
+        s
     }
 }
 
@@ -54,12 +61,20 @@ impl Read for MMapper {
             let mut src = &self.mmap[n..e];
             let mut writer = buf;
             match io::copy(&mut src, &mut writer) {
-                Ok(v) => { Ok(v as usize) }
-                Err(e) => { Err(e) }
+                Ok(v) => Ok(v as usize),
+                Err(e) => Err(e),
             }
         } else {
-            Err(io::Error::new(io::ErrorKind::InvalidInput,
-                               format!("read {n}..{e} from '{}' which ends at {} (total {} bytes)", self.file, self.end, self.mmap.len()).as_str()))
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "read {n}..{e} from '{}' which ends at {} (total {} bytes)",
+                    self.file,
+                    self.end,
+                    self.mmap.len()
+                )
+                .as_str(),
+            ))
         }
     }
 }
@@ -67,9 +82,9 @@ impl Read for MMapper {
 impl io::Seek for MMapper {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let new_pos = match pos {
-            SeekFrom::Start(n) => { n }
-            SeekFrom::End(n) => { (self.end as i64 + n) as u64 }
-            SeekFrom::Current(n) => { (self.start as i64 + n) as u64 }
+            SeekFrom::Start(n) => n,
+            SeekFrom::End(n) => (self.end as i64 + n) as u64,
+            SeekFrom::Current(n) => (self.start as i64 + n) as u64,
         };
         if new_pos < self.end {
             self.start = new_pos;
@@ -79,4 +94,3 @@ impl io::Seek for MMapper {
         }
     }
 }
-

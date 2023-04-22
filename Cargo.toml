@@ -10,3 +10,7 @@ kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_ba
 mft = { version = "0.6.1" }
 clap = { version = "4.1.7", features = ["derive"] }
 memmap2 = "0.5.10"
+byteorder = "*"
+simple-error = "*"
+regex = "1.7.3"
+sha-1 = "0.10.1"
