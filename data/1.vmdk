@@ -1,0 +1,23 @@
+# Disk DescriptorFile
+version=1
+CID=00000000
+parentCID=ffffffff
+isNativeSnapshot="no"
+createType="twoGbMaxExtentSparse"
+
+# Extent description
+RW 20480 SPARSE "1-s001.vmdk"
+
+# The Disk Data Base 
+#DDB
+
+ddb.deletable = "true"
+ddb.virtualHWVersion = "7"
+ddb.toolsVersion = "1"
+ddb.encoding = "UTF-8"
+ddb.longContentID = "b93eae20bf0418af3d6428e797798347"
+ddb.uuid = "60 00 C2 9a dc 4a 12 0f-2a cb 5c 02 7e cf 6d 0e"
+ddb.geometry.cylinders = "301"
+ddb.geometry.heads = "4"
+ddb.geometry.sectors = "17"
+ddb.adapterType = "buslogic"
