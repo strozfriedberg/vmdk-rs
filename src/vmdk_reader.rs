@@ -226,7 +226,7 @@ impl VmdkReader {
         let mut grain_size = 0;
         let mut grain_table_start_index = 0;
         for i in &mut ed {
-            if i.kind != Kind::SPARSE && i.kind != Kind::FLAT {
+            if i.kind != Kind::SPARSE && i.kind != Kind::FLAT && i.kind != Kind::VMFS {
                 todo!("TODO: support {:?}", i.kind);
             }
             let ed_fn = f.as_ref().with_file_name(&i.filename);
@@ -369,8 +369,11 @@ impl VmdkReader {
 
                 let remaining_buf = &mut buf[bytes_read..];
                 let remaining_size = remaining_buf.len();
-                let remaining_grain_size =
-                    remaining_size.min((grain_size - (local_offset % grain_size)) as usize);
+                let remaining_grain_size = if grain_size > 0 {
+                    remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
+                } else {
+                    remaining_size
+                };
 
                 if sparse {
                     // calculate grain index and offset
@@ -409,7 +412,7 @@ impl VmdkReader {
                             .read_exact(&mut remaining_buf[..remaining_grain_size])?;
                     }
                 } else {
-                    // FLAT
+                    // FLAT, VMFS
                     extent_desc
                         .file
                         .borrow_mut()
