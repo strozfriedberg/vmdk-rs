@@ -22,10 +22,10 @@ fn main() {
 
     println!("vmdk_paths: '{:?}'", cli.vmdk_paths);
 
-    for vmdk_path in &cli.vmdk_paths  {
-        let vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
+    for i in 0..cli.vmdk_paths.len() {
+        let vmdk_reader = VmdkReader::open(&cli.vmdk_paths[i]).unwrap();
         println!("{vmdk_reader:?}");
-    
+
         let mut hasher = Sha1::new();
         let mut buf: Vec<u8> = vec![0; 1048576];
         let mut offset = 0;
@@ -37,20 +37,23 @@ fn main() {
                     panic!("{:?}", e);
                 }
             };
-    
+
             hasher.update(&buf[..readed]);
-    
+
             offset += readed as u64;
         }
         let result = hasher.finalize();
-        println!("{} {:X}\n", vmdk_path, result);
+        println!("{} {:X}\n", cli.vmdk_paths[i], result);
 
         let hash = Command::new("./tools/vmdk_dump")
-            .arg(vmdk_path.replace("/", "\\"))
+            .args(cli.vmdk_paths[i..].iter().map(|a| a.replace("/", "\\")))
             .output()
             .expect("Failed to execute vmdk_dump");
+        if !hash.status.success() {
+            panic!("{}", String::from_utf8(hash.stderr).unwrap());
+        }
         let hash = String::from_utf8(hash.stdout).unwrap();
-        let hash = hash.split(" ").skip(1).next().unwrap().trim();
+        let hash = hash.split(" ").last().unwrap().trim();
         //println!("{hash:?}");
         assert_eq!(&format!("{result:X}"), hash);
     }
