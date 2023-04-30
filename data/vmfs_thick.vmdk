@@ -1,0 +1,23 @@
+# Disk DescriptorFile
+version=1
+CID=00000000
+parentCID=ffffffff
+isNativeSnapshot="no"
+createType="vmfs"
+
+# Extent description
+RW 20480 VMFS "vmfs_thick-flat.vmdk" 0
+
+# The Disk Data Base 
+#DDB
+
+ddb.adapterType = "buslogic"
+ddb.geometry.sectors = "17"
+ddb.geometry.heads = "4"
+ddb.geometry.cylinders = "301"
+ddb.uuid = "60 00 C2 90 38 f6 55 c2-c3 dd e6 80 96 81 12 d8"
+ddb.longContentID = "2d3c3176ab899b51cb735b4f18eac6ea"
+ddb.encoding = "UTF-8"
+ddb.toolsVersion = "1"
+ddb.virtualHWVersion = "7"
+ddb.deletable = "true"
