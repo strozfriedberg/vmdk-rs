@@ -1,3 +1,5 @@
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use libflate::deflate::Decoder;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -19,6 +21,61 @@ use vmdk::generated::vmware_vmdk::*;
 
 use simple_error::SimpleError;
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum DiskCreateType {
+    None = 0,
+    /// VMware Workstation single-file dynamic disk.
+    MonolithicSparse = 1,
+    /// ESX Dynamic Disk.
+    VmfsSparse = 2,
+    /// VMware Workstation single-extent pre-allocated disk.
+    MonolithicFlat = 3,
+    /// ESX pre-allocated disk.
+    Vmfs = 4,
+    /// VMware Workstation multi-extent dynamic disk.
+    TwoGbMaxExtentSparse = 5,
+    /// VMware Workstation multi-extent pre-allocated disk.
+    TwoGbMaxExtentFlat = 6,
+    /// Full device disk.
+    FullDevice = 7,
+    /// ESX raw disk.
+    VmfsRaw = 8,
+    /// Partition disk.
+    PartitionedDevice = 9,
+    /// ESX RDM disk.
+    VmfsRawDeviceMap = 10,
+    /// ESX Passthrough RDM disk.
+    VmfsPassthroughRawDeviceMap = 11,
+    /// A streaming-optimized disk.
+    StreamOptimized = 12,
+    /// ESX SeSparse disk.
+    SeSparse = 13,
+    /// ESX VsanSparse disk.
+    VsanSparse = 14,
+}
+
+impl DiskCreateType {
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "monolithicSparse" => Some(Self::MonolithicSparse),
+            "vmfsSparse" => Some(Self::VmfsSparse),
+            "monolithicFlat" => Some(Self::MonolithicFlat),
+            "vmfs" => Some(Self::Vmfs),
+            "twoGbMaxExtentSparse" => Some(Self::TwoGbMaxExtentSparse),
+            "twoGbMaxExtentFlat" => Some(Self::TwoGbMaxExtentFlat),
+            "fullDevice" => Some(Self::FullDevice),
+            "vmfsRaw" => Some(Self::VmfsRaw),
+            "partitionedDevice" => Some(Self::PartitionedDevice),
+            "vmfsRawDeviceMap" => Some(Self::VmfsRawDeviceMap),
+            "vmfsPassthroughRawDeviceMap" => Some(Self::VmfsPassthroughRawDeviceMap),
+            "streamOptimized" => Some(Self::StreamOptimized),
+            "seSparse" => Some(Self::SeSparse),
+            "vsanSparse" => Some(Self::VsanSparse),
+            _ => None,
+        }
+    }
+}
+
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
 RW 2162688 FLAT "CentOS 3-f002.vmdk" 0
@@ -36,16 +93,26 @@ struct ExtentDesc {
     grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
     grain_size: u64,
     has_compressed_grain: bool, // TODO handle
+    create_type: DiskCreateType,
+}
+
+impl ExtentDesc {
+    fn is_sparse(&self) -> bool {
+        self.create_type == DiskCreateType::MonolithicSparse
+            || self.create_type == DiskCreateType::TwoGbMaxExtentSparse
+            || self.create_type == DiskCreateType::VmfsSparse
+    }
 }
 
 impl fmt::Debug for ExtentDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, filename: {}, grain_table size {} sectors }}",
+            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, create_type: {:?}, filename: {}, grain_table size {} sectors }}",
             self.sectors,
             self.start_sector,
             self.kind,
+            self.create_type,
             self.filename,
             if self.grain_table.is_some() {
                 self.grain_table.as_ref().unwrap().len()
@@ -70,6 +137,7 @@ enum Kind {
     VMFS,
     VMFSSPARSE,
     VMFSRDM,
+    VMFSRAW,
 }
 
 impl Kind {
@@ -81,6 +149,7 @@ impl Kind {
             "VMFS" => Some(Self::VMFS),
             "VMFSSPARSE" => Some(Self::VMFSSPARSE),
             "VMFSRDM" => Some(Self::VMFSRDM),
+            "VMFSRAW" => Some(Self::VMFSRAW),
             _ => panic!("Unknown extent descriptor KIND: {}", value),
         }
     }
@@ -90,6 +159,7 @@ impl Kind {
 struct ED {
     sectors: u64,
     kind: Kind,
+    create_type: DiskCreateType,
     filename: String,
     _start_sector: u64,
 }
@@ -128,41 +198,45 @@ impl VmdkReader {
 
     fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
         let mut ed: Vec<ED> = Vec::new();
+        let mut create_type = DiskCreateType::None;
 
         for line in descriptor.lines() {
-            if let Some(captures) =
-                regex::Regex::new(r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#)
-                    .unwrap()
-                    .captures(line)
+            if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
             {
-                // ignore access mode (captures[1])
-                let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
-                    SimpleError::new(format!(
-                        "can't parse value '{}' to u64: {:?}",
-                        captures[2].to_string(),
-                        e
-                    ))
+                let elems: Vec<String> = line.split(" ").map(|s| s.to_string()).collect();
+                let sectors = elems[1].parse::<u64>().map_err(|e| {
+                    SimpleError::new(format!("can't parse value '{}' to u64: {:?}", elems[1], e))
                 })?;
-                let kind = Kind::from_str(&captures[3].to_string()).ok_or(SimpleError::new(
-                    format!("can't parse {} to Kind enum", captures[3].to_string()),
-                ))?;
-                let filename = captures[4].to_string();
-                let _start_sector = match captures.get(5) {
-                    Some(v) => v.as_str().to_string().parse::<u64>().map_err(|e| {
+                let kind = Kind::from_str(&elems[2]).ok_or(SimpleError::new(format!(
+                    "can't parse {} to Kind enum",
+                    elems[2]
+                )))?;
+                let filename = elems[3].trim_matches('"').to_string();
+                let _start_sector = if elems.len() > 4 {
+                    elems[4].parse::<u64>().map_err(|e| {
                         SimpleError::new(format!(
                             "can't parse value '{}' to u64: {:?}",
-                            captures[5].to_string(),
-                            e
+                            elems[4], e
                         ))
-                    })?,
-                    None => 0,
+                    })?
+                } else {
+                    0
                 };
+
                 ed.push(ED {
                     sectors,
                     kind,
+                    create_type,
                     filename,
                     _start_sector,
                 });
+            }
+
+            if line.starts_with("createType") {
+                create_type = DiskCreateType::from_str(
+                    line.split("=").skip(1).next().unwrap().trim_matches('"'),
+                )
+                .unwrap();
             }
         }
 
@@ -254,6 +328,7 @@ impl VmdkReader {
                 start_sector: 0,
                 sectors: i.sectors,
                 kind: i.kind,
+                create_type: i.create_type,
                 grain_table,
                 grain_size,
                 has_compressed_grain,
@@ -406,10 +481,48 @@ impl VmdkReader {
                             .file
                             .borrow_mut()
                             .seek(SeekFrom::Start(seek_pos))?;
-                        extent_desc
-                            .file
-                            .borrow_mut()
-                            .read_exact(&mut remaining_buf[..remaining_grain_size])?;
+
+                        if extent_desc.has_compressed_grain {
+                            #[derive(Debug)]
+                            struct CompressedGrainHeader {
+                                _lba: u64,
+                                data_size: u32,
+                            }
+
+                            let mut file = extent_desc.file.borrow_mut();
+
+                            let cgh = CompressedGrainHeader {
+                                _lba: file.read_u64::<LittleEndian>().unwrap(),
+                                data_size: file.read_u32::<LittleEndian>().unwrap(),
+                            };
+
+                            let header: u16 = file.read_u16::<BigEndian>().unwrap();
+
+                            //sanity check against expected zlib stream header values...
+                            assert_eq!(header % 31, 0);
+                            assert_eq!((header & 0x0F00), 8 << 8);
+                            assert_eq!((header & 0x0020), 0);
+
+                            let mut buffer = vec![0u8; cgh.data_size as usize];
+                            file.read_exact(buffer.as_mut_slice())?;
+
+                            let mut decoder = Decoder::new(&*buffer.as_mut_slice());
+                            let mut decoded_data = Vec::new();
+
+                            // Need to skip some bytes
+                            // for _ in 0..grain_offset {
+                            //     decoder.read(&mut decoded_data).unwrap();
+                            // }
+
+                            decoder.read_to_end(&mut decoded_data)?;
+                            remaining_buf[..remaining_grain_size]
+                                .clone_from_slice(decoded_data.as_slice());
+                        } else {
+                            extent_desc
+                                .file
+                                .borrow_mut()
+                                .read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                        }
                     }
                 } else {
                     // FLAT, VMFS
@@ -417,6 +530,7 @@ impl VmdkReader {
                         .file
                         .borrow_mut()
                         .seek(SeekFrom::Start(local_offset))?;
+
                     extent_desc
                         .file
                         .borrow_mut()
