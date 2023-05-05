@@ -21,6 +21,8 @@ use vmdk::generated::vmware_vmdk::*;
 
 use simple_error::SimpleError;
 
+const SECTOR_SIZE: u64 = 512;
+
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
 RW 2162688 FLAT "CentOS 3-f002.vmdk" 0
@@ -360,23 +362,78 @@ impl VmdkReader {
         None
     }
 
+    fn read_and_decompress_grain(
+        extent_desc: &ExtentDesc,
+        grain_index: u64,
+    ) -> std::io::Result<Vec<u8>> {
+        let sector_num = *extent_desc
+            .grain_table
+            .as_ref()
+            .unwrap()
+            .get(&grain_index)
+            .unwrap();
+        let seek_pos = sector_num * SECTOR_SIZE;
+        extent_desc
+            .file
+            .borrow_mut()
+            .seek(SeekFrom::Start(seek_pos))?;
+
+        #[derive(Debug)]
+        struct CompressedGrainHeader {
+            _lba: u64,
+            data_size: u32,
+        }
+
+        let mut file = extent_desc.file.borrow_mut();
+
+        let cgh = CompressedGrainHeader {
+            _lba: file.read_u64::<LittleEndian>().unwrap(),
+            data_size: file.read_u32::<LittleEndian>().unwrap(),
+        };
+
+        let header: u16 = file.read_u16::<BigEndian>().unwrap();
+
+        //sanity check against expected zlib stream header values...
+        if header % 31 != 0 || header & 0x0F00 != 8 << 8 || header & 0x0020 != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                SimpleError::new(format!(
+                    "Sanity check failed for grain index {}",
+                    grain_index
+                )),
+            ));
+        }
+
+        let mut buffer = vec![0u8; cgh.data_size as usize];
+        file.read_exact(buffer.as_mut_slice())?;
+
+        let mut decoder = Decoder::new(&*buffer.as_mut_slice());
+        let mut decoded_data = Vec::new();
+        decoder.read_to_end(&mut decoded_data)?;
+
+        Ok(decoded_data)
+    }
+
     pub fn read_at_offset(&self, mut offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
-        let sector_size = 512;
         let mut bytes_read = 0;
         let mut grain_size = 0;
+        let mut eof = false;
 
-        while bytes_read < buf.len() {
+        while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
                 let mut local_offset = offset;
                 let extent_desc = match Self::get_extent_from_offset(ex, offset, &mut local_offset)
                 {
                     Some(e) => e,
-                    None => break,
+                    None => {
+                        eof = true;
+                        break;
+                    }
                 };
 
                 let sparse = extent_desc.kind == Kind::SPARSE;
                 if sparse {
-                    grain_size = extent_desc.grain_size * sector_size;
+                    grain_size = extent_desc.grain_size * SECTOR_SIZE;
                 }
 
                 let remaining_buf = &mut buf[bytes_read..];
@@ -390,7 +447,7 @@ impl VmdkReader {
                 if sparse {
                     // calculate grain index and offset
                     let grain_index = offset / grain_size;
-                    let grain_data_offset = offset % grain_size;
+                    let grain_data_offset = (offset % grain_size) as usize;
 
                     if !extent_desc
                         .grain_table
@@ -406,56 +463,31 @@ impl VmdkReader {
                             continue;
                         }
                     } else {
-                        // calculate real sector
-                        let sector_num = *extent_desc
-                            .grain_table
-                            .as_ref()
-                            .unwrap()
-                            .get(&grain_index)
-                            .unwrap();
-                        let seek_pos = sector_num * sector_size + grain_data_offset;
-                        extent_desc
-                            .file
-                            .borrow_mut()
-                            .seek(SeekFrom::Start(seek_pos))?;
-
-                        if extent_desc.has_compressed_grain {
-                            #[derive(Debug)]
-                            struct CompressedGrainHeader {
-                                _lba: u64,
-                                data_size: u32,
-                            }
-
-                            let mut file = extent_desc.file.borrow_mut();
-
-                            let cgh = CompressedGrainHeader {
-                                _lba: file.read_u64::<LittleEndian>().unwrap(),
-                                data_size: file.read_u32::<LittleEndian>().unwrap(),
-                            };
-
-                            let header: u16 = file.read_u16::<BigEndian>().unwrap();
-
-                            //sanity check against expected zlib stream header values...
-                            debug_assert_eq!(header % 31, 0);
-                            debug_assert_eq!((header & 0x0F00), 8 << 8);
-                            debug_assert_eq!((header & 0x0020), 0);
-
-                            let mut buffer = vec![0u8; cgh.data_size as usize];
-                            file.read_exact(buffer.as_mut_slice())?;
-
-                            let mut decoder = Decoder::new(&*buffer.as_mut_slice());
-                            let mut decoded_data = Vec::new();
-
-                            decoder.read_to_end(&mut decoded_data)?;
-                            debug_assert_eq!(remaining_grain_size, decoded_data.len());
-                            remaining_buf[..remaining_grain_size]
-                                .clone_from_slice(decoded_data.as_slice());
+                        let grain_data = if extent_desc.has_compressed_grain {
+                            Self::read_and_decompress_grain(extent_desc, grain_index)?
                         } else {
+                            // calculate real sector and read whole grain
+                            let mut data = vec![0u8; grain_size as usize];
+
+                            let sector_num = *extent_desc
+                                .grain_table
+                                .as_ref()
+                                .unwrap()
+                                .get(&grain_index)
+                                .unwrap();
+                            let seek_pos = sector_num * SECTOR_SIZE;
                             extent_desc
                                 .file
                                 .borrow_mut()
-                                .read_exact(&mut remaining_buf[..remaining_grain_size])?;
-                        }
+                                .seek(SeekFrom::Start(seek_pos))?;
+                            extent_desc.file.borrow_mut().read_exact(&mut data)?;
+
+                            data
+                        };
+                        remaining_buf[..remaining_grain_size].clone_from_slice(
+                            &grain_data
+                                [grain_data_offset..grain_data_offset + remaining_grain_size],
+                        );
                     }
                 } else {
                     // FLAT, VMFS

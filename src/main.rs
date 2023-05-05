@@ -38,6 +38,10 @@ fn main() {
                 }
             };
 
+            if readed == 0 {
+                break;
+            }
+
             hasher.update(&buf[..readed]);
 
             offset += readed as u64;
