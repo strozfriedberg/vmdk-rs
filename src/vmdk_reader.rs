@@ -21,61 +21,6 @@ use vmdk::generated::vmware_vmdk::*;
 
 use simple_error::SimpleError;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum DiskCreateType {
-    None = 0,
-    /// VMware Workstation single-file dynamic disk.
-    MonolithicSparse = 1,
-    /// ESX Dynamic Disk.
-    VmfsSparse = 2,
-    /// VMware Workstation single-extent pre-allocated disk.
-    MonolithicFlat = 3,
-    /// ESX pre-allocated disk.
-    Vmfs = 4,
-    /// VMware Workstation multi-extent dynamic disk.
-    TwoGbMaxExtentSparse = 5,
-    /// VMware Workstation multi-extent pre-allocated disk.
-    TwoGbMaxExtentFlat = 6,
-    /// Full device disk.
-    FullDevice = 7,
-    /// ESX raw disk.
-    VmfsRaw = 8,
-    /// Partition disk.
-    PartitionedDevice = 9,
-    /// ESX RDM disk.
-    VmfsRawDeviceMap = 10,
-    /// ESX Passthrough RDM disk.
-    VmfsPassthroughRawDeviceMap = 11,
-    /// A streaming-optimized disk.
-    StreamOptimized = 12,
-    /// ESX SeSparse disk.
-    SeSparse = 13,
-    /// ESX VsanSparse disk.
-    VsanSparse = 14,
-}
-
-impl DiskCreateType {
-    fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "monolithicSparse" => Some(Self::MonolithicSparse),
-            "vmfsSparse" => Some(Self::VmfsSparse),
-            "monolithicFlat" => Some(Self::MonolithicFlat),
-            "vmfs" => Some(Self::Vmfs),
-            "twoGbMaxExtentSparse" => Some(Self::TwoGbMaxExtentSparse),
-            "twoGbMaxExtentFlat" => Some(Self::TwoGbMaxExtentFlat),
-            "fullDevice" => Some(Self::FullDevice),
-            "vmfsRaw" => Some(Self::VmfsRaw),
-            "partitionedDevice" => Some(Self::PartitionedDevice),
-            "vmfsRawDeviceMap" => Some(Self::VmfsRawDeviceMap),
-            "vmfsPassthroughRawDeviceMap" => Some(Self::VmfsPassthroughRawDeviceMap),
-            "streamOptimized" => Some(Self::StreamOptimized),
-            "seSparse" => Some(Self::SeSparse),
-            "vsanSparse" => Some(Self::VsanSparse),
-            _ => None,
-        }
-    }
-}
-
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
 RW 2162688 FLAT "CentOS 3-f002.vmdk" 0
@@ -95,26 +40,16 @@ struct ExtentDesc {
     // only if Kind == FLAT
     offset: u64,
     has_compressed_grain: bool,
-    create_type: DiskCreateType,
-}
-
-impl ExtentDesc {
-    fn is_sparse(&self) -> bool {
-        self.create_type == DiskCreateType::MonolithicSparse
-            || self.create_type == DiskCreateType::TwoGbMaxExtentSparse
-            || self.create_type == DiskCreateType::VmfsSparse
-    }
 }
 
 impl fmt::Debug for ExtentDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, create_type: {:?}, filename: {}, grain_table size {} sectors }}",
+            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, filename: {}, grain_table size {} sectors }}",
             self.sectors,
             self.start_sector,
             self.kind,
-            self.create_type,
             self.filename,
             if self.grain_table.is_some() {
                 self.grain_table.as_ref().unwrap().len()
@@ -161,7 +96,6 @@ impl Kind {
 struct ED {
     sectors: u64,
     kind: Kind,
-    create_type: DiskCreateType,
     filename: String,
     offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
 }
@@ -200,7 +134,6 @@ impl VmdkReader {
 
     fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
         let mut ed: Vec<ED> = Vec::new();
-        let mut create_type = DiskCreateType::None;
 
         for line in descriptor.lines() {
             if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
@@ -237,16 +170,10 @@ impl VmdkReader {
                     ed.push(ED {
                         sectors,
                         kind,
-                        create_type,
                         filename,
                         offset,
                     });
                 }
-            } else if line.starts_with("createType") {
-                create_type = DiskCreateType::from_str(
-                    line.split("=").skip(1).next().unwrap().trim_matches('"'),
-                )
-                .unwrap();
             }
         }
 
@@ -338,7 +265,6 @@ impl VmdkReader {
                 start_sector: 0, // will be updated later (see below)
                 sectors: i.sectors,
                 kind: i.kind,
-                create_type: i.create_type,
                 grain_table,
                 grain_size,
                 offset: i.offset,
