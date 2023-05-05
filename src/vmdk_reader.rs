@@ -92,6 +92,8 @@ struct ExtentDesc {
     // only if Kind == SPARSE
     grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
     grain_size: u64,
+    // only if Kind == FLAT
+    offset: u64,
     has_compressed_grain: bool, // TODO handle
     create_type: DiskCreateType,
 }
@@ -161,7 +163,7 @@ struct ED {
     kind: Kind,
     create_type: DiskCreateType,
     filename: String,
-    _start_sector: u64,
+    offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
 }
 
 impl VmdkReader {
@@ -203,36 +205,44 @@ impl VmdkReader {
         for line in descriptor.lines() {
             if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
             {
-                let elems: Vec<String> = line.split(" ").map(|s| s.to_string()).collect();
-                let sectors = elems[1].parse::<u64>().map_err(|e| {
-                    SimpleError::new(format!("can't parse value '{}' to u64: {:?}", elems[1], e))
-                })?;
-                let kind = Kind::from_str(&elems[2]).ok_or(SimpleError::new(format!(
-                    "can't parse {} to Kind enum",
-                    elems[2]
-                )))?;
-                let filename = elems[3].trim_matches('"').to_string();
-                let _start_sector = if elems.len() > 4 {
-                    elems[4].parse::<u64>().map_err(|e| {
+                if let Some(captures) = regex::Regex::new(
+                    r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#,
+                )
+                .unwrap()
+                .captures(line)
+                {
+                    // ignore access mode (captures[1])
+                    let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
                         SimpleError::new(format!(
                             "can't parse value '{}' to u64: {:?}",
-                            elems[4], e
+                            captures[2].to_string(),
+                            e
                         ))
-                    })?
-                } else {
-                    0
-                };
+                    })?;
+                    let kind = Kind::from_str(&captures[3].to_string()).ok_or(SimpleError::new(
+                        format!("can't parse {} to Kind enum", captures[3].to_string()),
+                    ))?;
+                    let filename = captures[4].to_string();
+                    let offset = match captures.get(5) {
+                        Some(v) => v.as_str().to_string().parse::<u64>().map_err(|e| {
+                            SimpleError::new(format!(
+                                "can't parse value '{}' to u64: {:?}",
+                                captures[5].to_string(),
+                                e
+                            ))
+                        })?,
+                        None => 0,
+                    };
 
-                ed.push(ED {
-                    sectors,
-                    kind,
-                    create_type,
-                    filename,
-                    _start_sector,
-                });
-            }
-
-            if line.starts_with("createType") {
+                    ed.push(ED {
+                        sectors,
+                        kind,
+                        create_type,
+                        filename,
+                        offset,
+                    });
+                }
+            } else if line.starts_with("createType") {
                 create_type = DiskCreateType::from_str(
                     line.split("=").skip(1).next().unwrap().trim_matches('"'),
                 )
@@ -325,12 +335,13 @@ impl VmdkReader {
             let ed = ExtentDesc {
                 file: RefCell::new(file),
                 filename: i.filename.clone(),
-                start_sector: 0,
+                start_sector: 0, // will be updated later (see below)
                 sectors: i.sectors,
                 kind: i.kind,
                 create_type: i.create_type,
                 grain_table,
                 grain_size,
+                offset: i.offset,
                 has_compressed_grain,
             };
             assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
@@ -526,6 +537,12 @@ impl VmdkReader {
                     }
                 } else {
                     // FLAT, VMFS
+
+                    // handle offset only if Kind::FLAT
+                    if extent_desc.kind == Kind::FLAT && extent_desc.offset > 0 {
+                        local_offset += extent_desc.offset;
+                    }
+
                     extent_desc
                         .file
                         .borrow_mut()
