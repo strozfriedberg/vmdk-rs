@@ -94,7 +94,7 @@ struct ExtentDesc {
     grain_size: u64,
     // only if Kind == FLAT
     offset: u64,
-    has_compressed_grain: bool, // TODO handle
+    has_compressed_grain: bool,
     create_type: DiskCreateType,
 }
 
@@ -510,9 +510,9 @@ impl VmdkReader {
                             let header: u16 = file.read_u16::<BigEndian>().unwrap();
 
                             //sanity check against expected zlib stream header values...
-                            assert_eq!(header % 31, 0);
-                            assert_eq!((header & 0x0F00), 8 << 8);
-                            assert_eq!((header & 0x0020), 0);
+                            debug_assert_eq!(header % 31, 0);
+                            debug_assert_eq!((header & 0x0F00), 8 << 8);
+                            debug_assert_eq!((header & 0x0020), 0);
 
                             let mut buffer = vec![0u8; cgh.data_size as usize];
                             file.read_exact(buffer.as_mut_slice())?;
@@ -520,12 +520,8 @@ impl VmdkReader {
                             let mut decoder = Decoder::new(&*buffer.as_mut_slice());
                             let mut decoded_data = Vec::new();
 
-                            // Need to skip some bytes
-                            // for _ in 0..grain_offset {
-                            //     decoder.read(&mut decoded_data).unwrap();
-                            // }
-
                             decoder.read_to_end(&mut decoded_data)?;
+                            debug_assert_eq!(remaining_grain_size, decoded_data.len());
                             remaining_buf[..remaining_grain_size]
                                 .clone_from_slice(decoded_data.as_slice());
                         } else {
