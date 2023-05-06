@@ -14,10 +14,9 @@ use std::path::Path;
 use std::path::PathBuf;
 
 extern crate kaitai;
-
 use self::kaitai::*;
 
-use vmdk::generated::vmware_vmdk::*;
+use crate::generated::vmware_vmdk::*;
 
 use simple_error::SimpleError;
 
