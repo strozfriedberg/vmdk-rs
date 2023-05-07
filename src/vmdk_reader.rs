@@ -379,7 +379,7 @@ impl VmdkReader {
 
         let header: u16 = file.read_u16::<BigEndian>().unwrap();
 
-        //sanity check against expected zlib stream header values...
+        // sanity check against expected zlib stream header values...
         if header % 31 != 0 || header & 0x0F00 != 8 << 8 || header & 0x0020 != 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,

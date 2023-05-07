@@ -49,16 +49,18 @@ fn main() {
         let result = hasher.finalize();
         println!("{} {:X}\n", cli.vmdk_paths[i], result);
 
-        let hash = Command::new("./tools/vmdk_dump")
-            .args(cli.vmdk_paths[i..].iter().map(|a| a.replace("/", "\\")))
-            .output()
-            .expect("Failed to execute vmdk_dump");
-        if !hash.status.success() {
-            panic!("{}", String::from_utf8(hash.stderr).unwrap());
+        if cfg!(target_os = "windows") {
+            let hash = Command::new("./tools/vmdk_dump")
+                .args(cli.vmdk_paths[i..].iter().map(|a| a.replace("/", "\\")))
+                .output()
+                .expect("Failed to execute vmdk_dump");
+            if !hash.status.success() {
+                panic!("{}", String::from_utf8(hash.stderr).unwrap());
+            }
+            let hash = String::from_utf8(hash.stdout).unwrap();
+            let hash = hash.split(" ").last().unwrap().trim();
+            //println!("{hash:?}");
+            assert_eq!(&format!("{result:X}"), hash);
         }
-        let hash = String::from_utf8(hash.stdout).unwrap();
-        let hash = hash.split(" ").last().unwrap().trim();
-        //println!("{hash:?}");
-        assert_eq!(&format!("{result:X}"), hash);
     }
 }
