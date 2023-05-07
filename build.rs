@@ -1,28 +1,23 @@
-use std::{
-    env,
-    fs,
-    str,
-    process::Command
-};
-use std::io::Write;
+use std::io::{BufRead, BufReader};
+use std::{env, fs, process::Command, str};
+
+fn lines_from_file(file: &str) -> Vec<String> {
+    let file = fs::File::open(file).expect("no such file");
+    let buf = BufReader::new(file);
+    buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect()
+}
 
 fn remove_inner_attrs(file: &str) {
-    let body = match fs::read_to_string(file) {
-        Ok(s) => s,
-        Err(e) => panic!("Could not read '{file}': {e}"),
-    };
-    let mut out_file = match fs::File::create(file) {
-        Ok(f) => f,
-        Err(e) => panic!("Could not create '{file}': {e}"),
-    };
-
-    for line in body.lines() {
-        if !line.starts_with("#![") {
-            if let Err(e) = writeln!(out_file, "{}", line) {
-                panic!("Could not write '{line}' into {file}: {e}");
-            }
+    let mut lines = lines_from_file(file);
+    for line in &mut lines {
+        if line.contains("#!") {
+            *line = line.replace("#!", "#");
         }
     }
+
+    fs::write(file, lines.join("\n")).expect("Failed to update file");
 }
 
 fn main() {
@@ -44,10 +39,24 @@ fn main() {
     if cmd_is_batch {
         cmd.args(["/C", &kaitai_struct_compiler]);
     };
+
+    let mut ksy_files: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(env::current_dir().unwrap().join("ksy")) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                if entry.path().extension().unwrap() == "ksy" {
+                    ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
     let output = cmd
-            .args(["--target", "rust", "-d", out_dir.to_str().unwrap(), "ksy/*.ksy"])
-            .output()
-            .expect("failed to execute process");
+        .args(["--target", "rust", "--outdir", out_dir.to_str().unwrap()])
+        .args(&ksy_files)
+        .output()
+        .expect("failed to execute process");
+    eprintln!("{:?}", cmd);
     let errors = output.stderr;
     if !errors.is_empty() {
         let messages = str::from_utf8(&errors).unwrap();
@@ -58,14 +67,16 @@ fn main() {
         }
     }
 
+    let mut generated_files = 0;
     if let Ok(entries) = fs::read_dir(out_dir) {
         for entry in entries {
             if let Ok(entry) = entry {
+                generated_files += 1;
                 remove_inner_attrs(entry.path().to_str().unwrap());
             }
         }
     }
+    assert_eq!(generated_files, ksy_files.len());
 
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=ksy/*.ksy");
+    println!("cargo:rerun-if-changed=ksy");
 }
