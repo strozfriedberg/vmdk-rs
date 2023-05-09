@@ -288,11 +288,13 @@ impl VmdkReader {
         grain_table_start_index: &mut u64,
         h: OptRc<VmwareVmdk>,
     ) -> Result<HashMap<u64, u64>, SimpleError> {
-        let grain_table0_size = *h.num_grain_table_entries() as i64 * (*h.size_grain() * 512);
+        let size_grain_bytes = *h.size_grain() * 512;
+        let grain_table0_size = *h.num_grain_table_entries() as i64 * size_grain_bytes;
         let size_max = *h.size_max() * 512;
+        let mut last_entry_special_size = false;
         let mut number_of_grain_directory_entries = size_max / grain_table0_size;
         if size_max % grain_table0_size > 0 {
-            // TODO handle len of last entry
+            last_entry_special_size = true;
             number_of_grain_directory_entries += 1;
         }
         let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
@@ -309,15 +311,23 @@ impl VmdkReader {
                 .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
                 .collect();
             // get and read metadata-1
-            let grain_table1_size = *h.num_grain_table_entries() as usize * 4;
-            for grain_table_offset in grain_dir_entries {
-                if grain_table_offset == 0 {
+            for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
+                if *grain_table_offset == 0 {
                     continue;
                 }
                 h._io()
-                    .seek(grain_table_offset as usize)
+                    .seek(*grain_table_offset as usize)
                     .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
 
+                let grain_table1_size =
+                    if last_entry_special_size && i == grain_dir_entries.len() - 1 {
+                        let rest = size_max % grain_table0_size;
+                        (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
+                            as usize
+                            * 4
+                    } else {
+                        *h.num_grain_table_entries() as usize * 4
+                    };
                 let grain_table: Vec<u64> = h
                     ._io()
                     .read_bytes(grain_table1_size as usize)
