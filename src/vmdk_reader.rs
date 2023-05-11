@@ -187,8 +187,8 @@ impl VmdkReader {
         let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
         let mut current_fn = PathBuf::from(f.as_ref());
         loop {
-            let descriptor = Self::read_descriptor(current_fn.as_path())?;
-            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor)?;
+            let (descriptor, is_bin) = Self::read_descriptor(current_fn.as_path())?;
+            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor, is_bin)?;
             let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
             if total_size == 0 {
                 total_size = total_size0;
@@ -213,7 +213,7 @@ impl VmdkReader {
         })
     }
 
-    fn read_descriptor<T: AsRef<Path>>(f: T) -> Result<String, SimpleError> {
+    fn read_descriptor<T: AsRef<Path>>(f: T) -> Result<(String, bool), SimpleError> {
         let header = Self::open_bin(&f);
         let text_format = header.is_err();
         let descriptor = if text_format {
@@ -227,22 +227,27 @@ impl VmdkReader {
         } else {
             String::from_utf8(header?.descriptor().unwrap().deref().to_vec()).unwrap()
         };
-        Ok(descriptor)
+        Ok((descriptor, !text_format))
     }
 
     fn read_extents<T: AsRef<Path>>(
         f: T,
         descriptor: &str,
+        is_bin: bool,
     ) -> Result<Vec<ExtentDesc>, SimpleError> {
-        let mut ed = Self::extract_ed_values(descriptor)?;
+        let ed = Self::extract_ed_values(descriptor)?;
         let mut extents: Vec<ExtentDesc> = Vec::new();
         let mut grain_size = 0;
         let mut grain_table_start_index = 0;
-        for i in &mut ed {
+        for i in &ed {
             if i.kind != Kind::SPARSE && i.kind != Kind::FLAT && i.kind != Kind::VMFS {
                 todo!("TODO: support {:?}", i.kind);
             }
-            let ed_fn = f.as_ref().with_file_name(&i.filename);
+            let mut ed_fn = f.as_ref().with_file_name(&i.filename);
+            if is_bin && ed.len() == 1 && !fs::metadata(&ed_fn).is_ok() {
+                // if 1st filename is wrong and we are bin - try to use current file
+                ed_fn = f.as_ref().to_path_buf();
+            }
             let mut has_compressed_grain = false;
             let mut zero_grain_table_entry = false;
             let grain_table = if i.kind == Kind::SPARSE {
@@ -265,7 +270,7 @@ impl VmdkReader {
             })?;
             let ed = ExtentDesc {
                 file: RefCell::new(file),
-                filename: i.filename.clone(),
+                filename: ed_fn.to_string_lossy().to_string(),
                 start_sector: 0, // will be updated later (see below)
                 sectors: i.sectors,
                 kind: i.kind,
