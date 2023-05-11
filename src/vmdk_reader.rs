@@ -303,54 +303,56 @@ impl VmdkReader {
             number_of_grain_directory_entries += 1;
         }
         let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
-        let grain_dir = if *h.flags().use_secondary_grain_dir() {
-            h.grain_secondary()
-        } else {
-            h.grain_primary()
-        };
         // get and read metadata-0
-        if let Ok(grains) = &grain_dir {
-            let truncated_grains = &(*grains)[..number_of_grain_directory_entries as usize * 4];
-            let grain_dir_entries: Vec<u64> = truncated_grains
+        let grain = if *h.flags().use_secondary_grain_dir() {
+            *h.start_secondary_grain()
+        } else {
+            *h.start_primary_grain()
+        };
+        h._io()
+            .seek(grain as usize * 512)
+            .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
+        let grain_dir_entries: Vec<u64> = h
+            ._io()
+            .read_bytes(number_of_grain_directory_entries as usize * 4)
+            .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
+            .collect();
+        // get and read metadata-1
+        for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
+            if *grain_table_offset == 0 {
+                *grain_table_start_index += *h.num_grain_table_entries() as u64;
+                continue;
+            }
+            h._io()
+                .seek(*grain_table_offset as usize)
+                .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
+
+            let grain_table1_size = if last_entry_special_size && i == grain_dir_entries.len() - 1 {
+                let rest = size_max % grain_table0_size;
+                (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 }) as usize
+                    * 4
+            } else {
+                *h.num_grain_table_entries() as usize * 4
+            };
+            let grain_table: Vec<u64> = h
+                ._io()
+                .read_bytes(grain_table1_size as usize)
+                .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
                 .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
                 .collect();
-            // get and read metadata-1
-            for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
-                if *grain_table_offset == 0 {
+
+            for i in 0..grain_table.len() {
+                if grain_table[i] == 0 {
                     continue;
                 }
-                h._io()
-                    .seek(*grain_table_offset as usize)
-                    .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
-
-                let grain_table1_size =
-                    if last_entry_special_size && i == grain_dir_entries.len() - 1 {
-                        let rest = size_max % grain_table0_size;
-                        (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
-                            as usize
-                            * 4
-                    } else {
-                        *h.num_grain_table_entries() as usize * 4
-                    };
-                let grain_table: Vec<u64> = h
-                    ._io()
-                    .read_bytes(grain_table1_size as usize)
-                    .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
-                    .collect();
-
-                for i in 0..grain_table.len() {
-                    if grain_table[i] == 0 {
-                        continue;
-                    }
-                    let old =
-                        grain_table_all.insert(*grain_table_start_index + i as u64, grain_table[i]);
-                    debug_assert!(old.is_none());
-                }
-                *grain_table_start_index += grain_table.len() as u64;
+                let old =
+                    grain_table_all.insert(*grain_table_start_index + i as u64, grain_table[i]);
+                debug_assert!(old.is_none());
             }
+            *grain_table_start_index += grain_table.len() as u64;
         }
         Ok(grain_table_all)
     }
