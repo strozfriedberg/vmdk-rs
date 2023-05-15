@@ -7,8 +7,6 @@ pub mod vmdk_reader;
 use sha1::{Digest, Sha1};
 use vmdk_reader::VmdkReader;
 
-mod mmapper;
-
 use std::process::Command;
 
 #[derive(Parser)]
@@ -17,13 +15,9 @@ struct Cli {
     vmdk_paths: Vec<String>,
 }
 
-fn main() {
-    let cli = Cli::parse();
-
-    println!("vmdk_paths: '{:?}'", cli.vmdk_paths);
-
-    for i in 0..cli.vmdk_paths.len() {
-        let vmdk_reader = VmdkReader::open(&cli.vmdk_paths[i]).unwrap();
+fn do_hash(vmdk_paths: &Vec<&str>) {
+    for i in 0..vmdk_paths.len() {
+        let vmdk_reader = VmdkReader::open(&vmdk_paths[i]).unwrap();
         println!("{vmdk_reader:?}");
 
         let mut hasher = Sha1::new();
@@ -47,11 +41,11 @@ fn main() {
             offset += readed as u64;
         }
         let result = hasher.finalize();
-        println!("{} {:X}\n", cli.vmdk_paths[i], result);
+        println!("{} {:X}\n", vmdk_paths[i], result);
 
         if cfg!(target_os = "windows") {
             let hash = Command::new("./tools/vmdk_dump")
-                .args(cli.vmdk_paths[i..].iter().map(|a| a.replace("/", "\\")))
+                .args(vmdk_paths[i..].iter().map(|a| a.replace("/", "\\")))
                 .output()
                 .expect("Failed to execute vmdk_dump");
             if !hash.status.success() {
@@ -63,4 +57,22 @@ fn main() {
             assert_eq!(&format!("{result:X}"), hash);
         }
     }
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    println!("vmdk_paths: '{:?}'", cli.vmdk_paths);
+
+    do_hash(&cli.vmdk_paths.iter().map(String::as_str).collect());
+}
+
+#[test]
+fn test_all_images() {
+    do_hash(&vec!["data/vmfs_thick-000001.vmdk", "data/vmfs_thick.vmdk"]);
+    do_hash(&vec!["data/twoGbMaxExtentSparse.vmdk"]);
+    do_hash(&vec!["data/twoGbMaxExtentFlat.vmdk"]);
+    do_hash(&vec!["data/streamOptimized.vmdk"]);
+    do_hash(&vec!["data/monolithicSparse.vmdk"]);
+    do_hash(&vec!["data/monolithicFlat.vmdk"]);
 }

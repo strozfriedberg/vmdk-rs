@@ -16,6 +16,7 @@ use std::path::PathBuf;
 extern crate kaitai;
 use self::kaitai::*;
 
+use crate::generated::vmware_cowd::*;
 use crate::generated::vmware_vmdk::*;
 
 use simple_error::SimpleError;
@@ -48,15 +49,18 @@ impl fmt::Debug for ExtentDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, filename: {}, grain_table size {} sectors }}",
+            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, filename: {}, {} }}\n",
             self.sectors,
             self.start_sector,
             self.kind,
             self.filename,
             if self.grain_table.is_some() {
-                self.grain_table.as_ref().unwrap().len()
+                format!(
+                    "grain_table size {}",
+                    self.grain_table.as_ref().unwrap().len()
+                )
             } else {
-                0
+                format!("flat")
             }
         )
     }
@@ -102,24 +106,85 @@ struct ED {
     offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
 }
 
-impl VmdkReader {
-    fn open_bin<T: AsRef<Path>>(f: T) -> Result<OptRc<VmwareVmdk>, SimpleError> {
-        let _io = BytesReader::open(f).unwrap();
-        let res: KResult<OptRc<VmwareVmdk>> = VmwareVmdk::read_into(&_io, None, None);
-        let header: OptRc<VmwareVmdk>;
+#[derive(Debug)]
+struct VmdkSparseFileHeader {
+    io: BytesReader,
+    size_max: u64,
+    size_grain: u64,
+    grain_dir: u64,
+    num_grain_table_entries: u32,
+    zeroed_grain_table_entry: bool,
+    has_compressed_grain: bool,
+    descriptor: String,
+}
 
-        match res {
-            Ok(_) => {
-                header = res.unwrap();
+impl VmdkReader {
+    fn open_bin<T: AsRef<Path>>(f: T) -> Result<VmdkSparseFileHeader, SimpleError> {
+        let io = BytesReader::open(f).unwrap();
+
+        let first_bytes = io
+            .read_bytes(4)
+            .map_err(|e| SimpleError::new(format!("read_bytes error: {:?}", e)))?;
+
+        io.seek(0)
+            .map_err(|e| SimpleError::new(format!("seek error: {:?}", e)))?;
+
+        if first_bytes == vec![0x43u8, 0x4Fu8, 0x57u8, 0x44u8]
+        // COWD
+        {
+            match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
+                Ok(h) => {
+                    return Ok(VmdkSparseFileHeader {
+                        io,
+                        size_max: *h.size_max() as u64,
+                        size_grain: *h.size_grain() as u64,
+                        grain_dir: *h.grain_dir() as u64,
+                        num_grain_table_entries: *h.num_grain_table_entries() as u32,
+                        zeroed_grain_table_entry: false,
+                        has_compressed_grain: false,
+                        descriptor: "".to_string(),
+                    });
+                }
+                Err(e) => {
+                    return Err(SimpleError::new(format!(
+                        "Error while deserializing VmwareVmdk struct: {:?}",
+                        e
+                    )));
+                }
             }
-            Err(e) => {
-                return Err(SimpleError::new(format!(
-                    "Error while deserializing VmwareVmdk struct: {:?}",
-                    e
-                )));
+        } else if first_bytes == vec![0x4Bu8, 0x44u8, 0x4Du8, 0x56u8]
+        // KDMV
+        {
+            match VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None) {
+                Ok(h) => {
+                    return Ok(VmdkSparseFileHeader {
+                        io,
+                        size_max: *h.size_max() as u64,
+                        size_grain: *h.size_grain() as u64,
+                        grain_dir: if *h.flags().use_secondary_grain_dir() {
+                            *h.start_secondary_grain() as u64
+                        } else {
+                            *h.start_primary_grain() as u64
+                        },
+                        num_grain_table_entries: *h.num_grain_table_entries() as u32,
+                        zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
+                        has_compressed_grain: *h.flags().has_compressed_grain(),
+                        descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref())
+                            .to_string(),
+                    });
+                }
+                Err(e) => {
+                    return Err(SimpleError::new(format!(
+                        "Error while deserializing VmwareVmdk struct: {:?}",
+                        e
+                    )));
+                }
             }
         }
-        Ok(header)
+
+        Err(SimpleError::new(format!(
+            "No KDMV nor COWD headers detected"
+        )))
     }
 
     fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
@@ -225,7 +290,7 @@ impl VmdkReader {
                 ))
             })?
         } else {
-            String::from_utf8(header?.descriptor().unwrap().deref().to_vec()).unwrap()
+            header?.descriptor
         };
         Ok((descriptor, !text_format))
     }
@@ -240,7 +305,11 @@ impl VmdkReader {
         let mut grain_size = 0;
         let mut grain_table_start_index = 0;
         for i in &ed {
-            if i.kind != Kind::SPARSE && i.kind != Kind::FLAT && i.kind != Kind::VMFS {
+            if i.kind != Kind::SPARSE
+                && i.kind != Kind::FLAT
+                && i.kind != Kind::VMFS
+                && i.kind != Kind::VMFSSPARSE
+            {
                 todo!("TODO: support {:?}", i.kind);
             }
             let mut ed_fn = f.as_ref().with_file_name(&i.filename);
@@ -250,14 +319,15 @@ impl VmdkReader {
             }
             let mut has_compressed_grain = false;
             let mut zero_grain_table_entry = false;
-            let grain_table = if i.kind == Kind::SPARSE {
+            let grain_table = if i.kind == Kind::SPARSE || i.kind == Kind::VMFSSPARSE {
                 let header = Self::open_bin(&ed_fn)?;
-                has_compressed_grain = *header.flags().has_compressed_grain();
-                zero_grain_table_entry = *header.flags().zeroed_grain_table_entry();
-                grain_size = *header.size_grain() as u64;
+                has_compressed_grain = header.has_compressed_grain;
+                zero_grain_table_entry = header.zeroed_grain_table_entry;
+                grain_size = header.size_grain;
                 Some(Self::read_grain_table(
                     &mut grain_table_start_index,
-                    header,
+                    &header,
+                    i.kind,
                 )?)
             } else {
                 None
@@ -280,7 +350,10 @@ impl VmdkReader {
                 has_compressed_grain,
                 zero_grain_table_entry,
             };
-            assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
+            if ed.kind != Kind::VMFSSPARSE {
+                // skip this check for VMFSSPARSE (file on disk could be bigger)
+                debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
+            }
             extents.push(ed);
         }
         for i in 1..extents.len() {
@@ -291,58 +364,59 @@ impl VmdkReader {
 
     fn read_grain_table(
         grain_table_start_index: &mut u64,
-        h: OptRc<VmwareVmdk>,
+        h: &VmdkSparseFileHeader,
+        kind: Kind,
     ) -> Result<HashMap<u64, u64>, SimpleError> {
-        let size_grain_bytes = *h.size_grain() * 512;
-        let grain_table0_size = *h.num_grain_table_entries() as i64 * size_grain_bytes;
-        let size_max = *h.size_max() * 512;
+        let size_grain_bytes = h.size_grain * 512;
+        let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
+        let size_max = h.size_max * 512;
         let mut last_entry_special_size = false;
-        let mut number_of_grain_directory_entries = size_max / grain_table0_size;
-        if size_max % grain_table0_size > 0 {
-            last_entry_special_size = true;
-            number_of_grain_directory_entries += 1;
+        let mut number_of_grain_directory_entries = h.num_grain_table_entries as u64;
+
+        if kind == Kind::SPARSE {
+            number_of_grain_directory_entries = size_max / grain_table0_size;
+            if size_max % grain_table0_size > 0 {
+                last_entry_special_size = true;
+                number_of_grain_directory_entries += 1;
+            }
         }
         let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
         // get and read metadata-0
-        let grain = if *h.flags().use_secondary_grain_dir() {
-            *h.start_secondary_grain()
-        } else {
-            *h.start_primary_grain()
-        };
-        h._io()
-            .seek(grain as usize * 512)
+        h.io.seek(h.grain_dir as usize * 512)
             .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
-        let grain_dir_entries: Vec<u64> = h
-            ._io()
-            .read_bytes(number_of_grain_directory_entries as usize * 4)
-            .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
-            .collect();
-        // get and read metadata-1
-        for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
-            if *grain_table_offset == 0 {
-                *grain_table_start_index += *h.num_grain_table_entries() as u64;
-                continue;
-            }
-            h._io()
-                .seek(*grain_table_offset as usize)
-                .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
-
-            let grain_table1_size = if last_entry_special_size && i == grain_dir_entries.len() - 1 {
-                let rest = size_max % grain_table0_size;
-                (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 }) as usize
-                    * 4
-            } else {
-                *h.num_grain_table_entries() as usize * 4
-            };
-            let grain_table: Vec<u64> = h
-                ._io()
-                .read_bytes(grain_table1_size as usize)
+        let grain_dir_entries: Vec<u64> =
+            h.io.read_bytes(number_of_grain_directory_entries as usize * 4)
                 .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
                 .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
                 .collect();
+        // get and read metadata-1
+        for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
+            let grain_table1_elems = if kind == Kind::SPARSE {
+                if last_entry_special_size && i == grain_dir_entries.len() - 1 {
+                    let rest = size_max % grain_table0_size;
+                    (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
+                        as usize
+                } else {
+                    h.num_grain_table_entries as usize
+                }
+            } else {
+                4096
+            };
+
+            if *grain_table_offset == 0 {
+                *grain_table_start_index += grain_table1_elems as u64;
+                continue;
+            }
+            h.io.seek(*grain_table_offset as usize)
+                .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
+
+            let grain_table: Vec<u64> =
+                h.io.read_bytes(grain_table1_elems as usize * 4)
+                    .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
+                    .collect();
 
             for i in 0..grain_table.len() {
                 if grain_table[i] == 0 {
@@ -434,7 +508,8 @@ impl VmdkReader {
                     }
                 };
 
-                let sparse = extent_desc.kind == Kind::SPARSE;
+                let sparse =
+                    extent_desc.kind == Kind::SPARSE || extent_desc.kind == Kind::VMFSSPARSE;
                 if sparse {
                     grain_size = extent_desc.grain_size * SECTOR_SIZE;
                 }
