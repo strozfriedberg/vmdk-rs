@@ -147,7 +147,7 @@ impl VmdkReader {
                 }
                 Err(e) => {
                     return Err(SimpleError::new(format!(
-                        "Error while deserializing VmwareVmdk struct: {:?}",
+                        "Error while deserializing VmwareCowd struct: {:?}",
                         e
                     )));
                 }
@@ -155,31 +155,44 @@ impl VmdkReader {
         } else if first_bytes == vec![0x4Bu8, 0x44u8, 0x4Du8, 0x56u8]
         // KDMV
         {
-            match VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None) {
-                Ok(h) => {
-                    return Ok(VmdkSparseFileHeader {
-                        io,
-                        size_max: *h.size_max() as u64,
-                        size_grain: *h.size_grain() as u64,
-                        grain_dir: if *h.flags().use_secondary_grain_dir() {
-                            *h.start_secondary_grain() as u64
-                        } else {
-                            *h.start_primary_grain() as u64
-                        },
-                        num_grain_table_entries: *h.num_grain_table_entries() as u32,
-                        zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
-                        has_compressed_grain: *h.flags().has_compressed_grain(),
-                        descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref())
-                            .to_string(),
-                    });
-                }
-                Err(e) => {
-                    return Err(SimpleError::new(format!(
+            let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
+                return SimpleError::new(format!(
+                    "Error while deserializing VmwareVmdk struct: {:?}",
+                    e
+                ));
+            })?;
+
+            if *h.start_primary_grain() == -1
+                && *h.compression_method() == VmwareVmdk_CompressionMethods::Deflate
+            {
+                // If the grain directory sector number value is -1 (0xffffffffffffffff) (GD_AT_END)
+                // in a Stream-Optimized Compressed Sparse Extent there should be a secondary file header
+                // stored at offset -1024 relative from the end of the file (stream)
+                io.seek(io.size() - 1024)
+                    .map_err(|e| SimpleError::new(format!("seek error: {:?}", e)))?;
+
+                h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
+                    return SimpleError::new(format!(
                         "Error while deserializing VmwareVmdk struct: {:?}",
                         e
-                    )));
-                }
+                    ));
+                })?;
             }
+
+            return Ok(VmdkSparseFileHeader {
+                io,
+                size_max: *h.size_max() as u64,
+                size_grain: *h.size_grain() as u64,
+                grain_dir: if *h.flags().use_secondary_grain_dir() {
+                    *h.start_secondary_grain() as u64
+                } else {
+                    *h.start_primary_grain() as u64
+                },
+                num_grain_table_entries: *h.num_grain_table_entries() as u32,
+                zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
+                has_compressed_grain: *h.flags().has_compressed_grain(),
+                descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref()).to_string(),
+            });
         }
 
         Err(SimpleError::new(format!(
