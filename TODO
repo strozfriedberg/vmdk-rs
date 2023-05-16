@@ -1,0 +1,1 @@
+- handle VMDK sparse extent file header flag 0x00020000 (Has metadata)
