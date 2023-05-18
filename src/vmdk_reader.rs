@@ -363,8 +363,8 @@ impl VmdkReader {
                 has_compressed_grain,
                 zero_grain_table_entry,
             };
-            if ed.kind != Kind::VMFSSPARSE {
-                // skip this check for VMFSSPARSE (file on disk could be bigger)
+            if ed.kind != Kind::SPARSE && ed.kind != Kind::VMFSSPARSE {
+                // skip this check (file on disk could be bigger)
                 debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
             }
             extents.push(ed);
