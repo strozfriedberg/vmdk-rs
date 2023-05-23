@@ -1,14 +1,15 @@
 [package]
 name = "vmdk"
 version = "0.1.0"
+authors = ["Aon"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "vmdk"
+path = "src/lib.rs"
 
 [dependencies]
 kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
-clap = { version = "4.1.7", features = ["derive"] }
-memmap2 = "0.5.10"
 simple-error = "*"
 regex = "1.7.3"
 sha-1 = "0.10.1"
