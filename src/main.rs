@@ -54,7 +54,6 @@ fn do_hash_vmdk_dump(vmdk_paths: &[&str]) -> String {
         }
         let hash = String::from_utf8(hash.stdout).unwrap();
         let hash = hash.split(" ").last().unwrap().trim();
-        //println!("{hash:?}");
         hash.to_string()
     } else {
         "".to_string()
