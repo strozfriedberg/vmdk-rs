@@ -21,13 +21,36 @@ fn remove_inner_attrs(file: &str) {
 }
 
 fn main() {
-    let env_var_compiler_name = "KAITAI_STRUCT_COMPILER";
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let env_var_compiler_name = "KAITAI_STRUCT_COMPILER1";
+
+    // if env KAITAI_STRUCT_COMPILER is not defined
+    if env::var_os(env_var_compiler_name).is_none() {
+        // copy pre-generated files
+        if let Ok(entries) = fs::read_dir(
+            env::current_dir()
+                .unwrap()
+                .join("ksy")
+                .join("pre-generated"),
+        ) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let out =
+                        std::path::Path::new(out_dir.to_str().unwrap()).join(entry.file_name());
+                    println!("copying {:?} to {:?}", entry.path(), out);
+                    fs::copy(entry.path(), out).unwrap();
+                }
+            }
+        }
+        println!("copyed pre-generated files");
+        return;
+    }
+
     let kaitai_struct_compiler = env::var_os(env_var_compiler_name)
         .expect(format!("Not defined env var '{env_var_compiler_name}'").as_str())
         .to_str()
         .unwrap()
         .to_string();
-    let out_dir = env::var_os("OUT_DIR").unwrap();
     let cmd_is_batch = kaitai_struct_compiler.ends_with(".bat");
     let mut cmd = if cmd_is_batch {
         Command::new("cmd")
@@ -44,8 +67,10 @@ fn main() {
     if let Ok(entries) = fs::read_dir(env::current_dir().unwrap().join("ksy")) {
         for entry in entries {
             if let Ok(entry) = entry {
-                if entry.path().extension().unwrap() == "ksy" {
-                    ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
+                if let Some(ext) = entry.path().extension() {
+                    if ext == "ksy" {
+                        ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
+                    }
                 }
             }
         }
