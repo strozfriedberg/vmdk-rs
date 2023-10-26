@@ -1,9 +1,12 @@
 mod generated;
 pub mod vmdk_reader;
 
+extern crate phf;
+
 #[allow(unused)]
 mod test {
     use crate::vmdk_reader::VmdkReader;
+    use phf::phf_map;
     use sha1::{Digest, Sha1};
     use std::process::Command;
 
@@ -45,9 +48,29 @@ mod test {
             }
             let hash = String::from_utf8(hash.stdout).unwrap();
             let hash = hash.split(" ").last().unwrap().trim();
+
+            // uncomment next line and run tests under Windows, then copy-paste to PREDEFINED_HASHES
+            //println!("\"{}\" => \"{}\",", vmdk_paths[0], hash);
+
             hash.to_string()
+        } else if cfg!(target_os = "linux") {
+            static PREDEFINED_HASHES: phf::Map<&'static str, &'static str> = phf_map! {
+                "data/streamOptimizedWithMarkers.vmdk" => "B6FD01DD1B93B3589E6D76F7507AF55C589EF69D",
+                // copy-paste here:
+                "data/vmfs_thick-000001.vmdk" => "2CCF34D146EF98204D1889FC44E94AD94E0B1CB6",
+                "data/vmfs_thick.vmdk" => "17EAF058191C5F2639D8F983CA7633E4F47087D1",
+                "data/twoGbMaxExtentSparse.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
+                "data/twoGbMaxExtentFlat.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
+                "data/streamOptimized.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
+                "data/monolithicSparse.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
+                "data/monolithicFlat.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
+            };
+            PREDEFINED_HASHES
+                .get(vmdk_paths[0])
+                .expect(&format!("TODO: No predefined hash for {}", vmdk_paths[0]))
+                .to_string()
         } else {
-            "".to_string()
+            todo!("unknown platform")
         }
     }
 

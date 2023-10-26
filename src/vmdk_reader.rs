@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use libflate::deflate::Decoder;
+use flate2::read::DeflateDecoder;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -497,7 +497,7 @@ impl VmdkReader {
         let mut buffer = vec![0u8; cgh.data_size as usize];
         file.read_exact(buffer.as_mut_slice())?;
 
-        let mut decoder = Decoder::new(&*buffer.as_mut_slice());
+        let mut decoder = DeflateDecoder::new(&*buffer.as_mut_slice());
         let mut decoded_data = Vec::new();
         decoder.read_to_end(&mut decoded_data)?;
 
