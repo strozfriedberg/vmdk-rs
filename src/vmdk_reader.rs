@@ -60,7 +60,7 @@ impl fmt::Debug for ExtentDesc {
                     self.grain_table.as_ref().unwrap().len()
                 )
             } else {
-                format!("flat")
+                "flat".to_string()
             }
         )
     }
@@ -72,6 +72,7 @@ pub struct VmdkReader {
     extents: LinkedList<Vec<ExtentDesc>>,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum Kind {
     SPARSE,
@@ -139,7 +140,7 @@ impl VmdkReader {
                         size_max: *h.size_max() as u64,
                         size_grain: *h.size_grain() as u64,
                         grain_dir: *h.grain_dir() as u64,
-                        num_grain_table_entries: *h.num_grain_table_entries() as u32,
+                        num_grain_table_entries: *h.num_grain_table_entries(),
                         zeroed_grain_table_entry: false,
                         has_compressed_grain: false,
                         descriptor: "".to_string(),
@@ -156,10 +157,10 @@ impl VmdkReader {
         // KDMV
         {
             let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
-                return SimpleError::new(format!(
+                SimpleError::new(format!(
                     "Error while deserializing VmwareVmdk struct: {:?}",
                     e
-                ));
+                ))
             })?;
 
             if *h.start_primary_grain() == -1
@@ -172,10 +173,10 @@ impl VmdkReader {
                     .map_err(|e| SimpleError::new(format!("seek error: {:?}", e)))?;
 
                 h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
-                    return SimpleError::new(format!(
+                    SimpleError::new(format!(
                         "Error while deserializing VmwareVmdk struct: {:?}",
                         e
-                    ));
+                    ))
                 })?;
             }
 
@@ -195,9 +196,9 @@ impl VmdkReader {
             });
         }
 
-        Err(SimpleError::new(format!(
-            "No KDMV nor COWD headers detected"
-        )))
+        Err(SimpleError::new(
+            "No KDMV nor COWD headers detected".to_string(),
+        ))
     }
 
     fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
@@ -228,20 +229,19 @@ impl VmdkReader {
                     let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
                         SimpleError::new(format!(
                             "can't parse value '{}' to u64: {:?}",
-                            captures[2].to_string(),
-                            e
+                            &captures[2], e
                         ))
                     })?;
-                    let kind = Kind::from_str(&captures[3].to_string()).ok_or(SimpleError::new(
-                        format!("can't parse {} to Kind enum", captures[3].to_string()),
-                    ))?;
+                    let kind = Kind::from_str(&captures[3]).ok_or(SimpleError::new(format!(
+                        "can't parse {} to Kind enum",
+                        &captures[3]
+                    )))?;
                     let filename = captures[4].to_string();
                     let offset = match captures.get(5) {
                         Some(v) => v.as_str().to_string().parse::<u64>().map_err(|e| {
                             SimpleError::new(format!(
                                 "can't parse value '{}' to u64: {:?}",
-                                captures[5].to_string(),
-                                e
+                                &captures[5], e
                             ))
                         })?,
                         None => 0,
@@ -270,13 +270,13 @@ impl VmdkReader {
             let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
             if total_size == 0 {
                 total_size = total_size0;
-            } else {
-                if total_size != total_size0 {
-                    return Err(SimpleError::new(format!(
-                        "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
-                        total_size, total_size0, current_fn.to_string_lossy()
-                    )));
-                }
+            } else if total_size != total_size0 {
+                return Err(SimpleError::new(format!(
+                    "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
+                    total_size,
+                    total_size0,
+                    current_fn.to_string_lossy()
+                )));
             }
             extents.push_back(extents0);
             if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
@@ -326,7 +326,7 @@ impl VmdkReader {
                 todo!("TODO: support {:?}", i.kind);
             }
             let mut ed_fn = f.as_ref().with_file_name(&i.filename);
-            if is_bin && ed.len() == 1 && !fs::metadata(&ed_fn).is_ok() {
+            if is_bin && ed.len() == 1 && fs::metadata(&ed_fn).is_err() {
                 // if 1st filename is wrong and we are bin - try to use current file
                 ed_fn = f.as_ref().to_path_buf();
             }
@@ -425,18 +425,17 @@ impl VmdkReader {
                 .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
 
             let grain_table: Vec<u64> =
-                h.io.read_bytes(grain_table1_elems as usize * 4)
+                h.io.read_bytes(grain_table1_elems * 4)
                     .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
                     .chunks_exact(4)
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
                     .collect();
 
-            for i in 0..grain_table.len() {
-                if grain_table[i] == 0 {
+            for (i, grain) in grain_table.iter().enumerate() {
+                if *grain == 0 {
                     continue;
                 }
-                let old =
-                    grain_table_all.insert(*grain_table_start_index + i as u64, grain_table[i]);
+                let old = grain_table_all.insert(*grain_table_start_index + i as u64, *grain);
                 debug_assert!(old.is_none());
             }
             *grain_table_start_index += grain_table.len() as u64;
@@ -451,13 +450,11 @@ impl VmdkReader {
     ) -> Option<&'a ExtentDesc> {
         let sector_num = offset / 512;
 
-        for i in 0..extents.len() {
-            if sector_num >= extents[i].start_sector
-                && sector_num < extents[i].start_sector + extents[i].sectors
-            {
-                return Some(&extents[i]);
+        for i in extents {
+            if sector_num >= i.start_sector && sector_num < i.start_sector + i.sectors {
+                return Some(i);
             } else {
-                *local_offset -= extents[i].sectors * 512;
+                *local_offset -= i.sectors * 512;
             }
         }
 

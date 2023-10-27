@@ -11,7 +11,7 @@ mod test {
     use std::process::Command;
 
     fn do_hash(vmdk_path: &str) -> String /*hash*/ {
-        let vmdk_reader = VmdkReader::open(&vmdk_path).unwrap();
+        let vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
 
         let mut hasher = Sha1::new();
         let mut buf: Vec<u8> = vec![0; 1048576];
@@ -40,14 +40,14 @@ mod test {
     fn do_hash_vmdk_dump(vmdk_paths: &[&str]) -> String {
         if cfg!(target_os = "windows") {
             let hash = Command::new("tools/vmdk_dump")
-                .args(vmdk_paths.iter().map(|a| a.replace("/", "\\")))
+                .args(vmdk_paths.iter().map(|a| a.replace('/', "\\")))
                 .output()
                 .expect("Failed to execute vmdk_dump");
             if !hash.status.success() {
                 panic!("{}", String::from_utf8(hash.stderr).unwrap());
             }
             let hash = String::from_utf8(hash.stdout).unwrap();
-            let hash = hash.split(" ").last().unwrap().trim();
+            let hash = hash.split(' ').last().unwrap().trim();
 
             // uncomment next line and run tests under Windows, then copy-paste to PREDEFINED_HASHES
             //println!("\"{}\" => \"{}\",", vmdk_paths[0], hash);
@@ -67,7 +67,7 @@ mod test {
             };
             PREDEFINED_HASHES
                 .get(vmdk_paths[0])
-                .expect(&format!("TODO: No predefined hash for {}", vmdk_paths[0]))
+                .unwrap_or_else(|| panic!("TODO: No predefined hash for {}", vmdk_paths[0]))
                 .to_string()
         } else {
             todo!("unknown platform")

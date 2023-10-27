@@ -33,13 +33,10 @@ fn main() {
                 .join("ksy")
                 .join("pre-generated"),
         ) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let out =
-                        std::path::Path::new(out_dir.to_str().unwrap()).join(entry.file_name());
-                    println!("copying {:?} to {:?}", entry.path(), out);
-                    fs::copy(entry.path(), out).unwrap();
-                }
+            for entry in entries.flatten() {
+                let out = std::path::Path::new(out_dir.to_str().unwrap()).join(entry.file_name());
+                println!("copying {:?} to {:?}", entry.path(), out);
+                fs::copy(entry.path(), out).unwrap();
             }
         }
         println!("copyed pre-generated files");
@@ -47,7 +44,7 @@ fn main() {
     }
 
     let kaitai_struct_compiler = env::var_os(env_var_compiler_name)
-        .expect(format!("Not defined env var '{env_var_compiler_name}'").as_str())
+        .unwrap_or_else(|| panic!("Not defined env var '{env_var_compiler_name}'"))
         .to_str()
         .unwrap()
         .to_string();
@@ -65,12 +62,10 @@ fn main() {
 
     let mut ksy_files: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(env::current_dir().unwrap().join("ksy")) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                if let Some(ext) = entry.path().extension() {
-                    if ext == "ksy" {
-                        ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
-                    }
+        for entry in entries.flatten() {
+            if let Some(ext) = entry.path().extension() {
+                if ext == "ksy" {
+                    ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
                 }
             }
         }
@@ -94,11 +89,9 @@ fn main() {
 
     let mut generated_files = 0;
     if let Ok(entries) = fs::read_dir(out_dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                generated_files += 1;
-                remove_inner_attrs(entry.path().to_str().unwrap());
-            }
+        for entry in entries.flatten() {
+            generated_files += 1;
+            remove_inner_attrs(entry.path().to_str().unwrap());
         }
     }
     assert_eq!(generated_files, ksy_files.len());
