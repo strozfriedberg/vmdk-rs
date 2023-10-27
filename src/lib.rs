@@ -81,12 +81,12 @@ mod test {
                 assert_eq!(do_hash(s), do_hash_vmdk_dump(&vmdk_paths[i..]));
             }
         };
-        do_hash2(&vec!["data/vmfs_thick-000001.vmdk", "data/vmfs_thick.vmdk"]);
-        do_hash2(&vec!["data/twoGbMaxExtentSparse.vmdk"]);
-        do_hash2(&vec!["data/twoGbMaxExtentFlat.vmdk"]);
-        do_hash2(&vec!["data/streamOptimized.vmdk"]);
-        do_hash2(&vec!["data/monolithicSparse.vmdk"]);
-        do_hash2(&vec!["data/monolithicFlat.vmdk"]);
+        do_hash2(&["data/vmfs_thick-000001.vmdk", "data/vmfs_thick.vmdk"]);
+        do_hash2(&["data/twoGbMaxExtentSparse.vmdk"]);
+        do_hash2(&["data/twoGbMaxExtentFlat.vmdk"]);
+        do_hash2(&["data/streamOptimized.vmdk"]);
+        do_hash2(&["data/monolithicSparse.vmdk"]);
+        do_hash2(&["data/monolithicFlat.vmdk"]);
 
         // vmdk_dump.exe crashes on this stream optimized image with markers
         assert_eq!(

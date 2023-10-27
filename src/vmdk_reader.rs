@@ -232,7 +232,7 @@ impl VmdkReader {
                             &captures[2], e
                         ))
                     })?;
-                    let kind = Kind::from_str(&captures[3]).ok_or(SimpleError::new(format!(
+                    let kind = Kind::from_str(&captures[3]).ok_or_else(|| SimpleError::new(format!(
                         "can't parse {} to Kind enum",
                         &captures[3]
                     )))?;
