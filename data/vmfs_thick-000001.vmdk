@@ -1,0 +1,14 @@
+# Disk DescriptorFile
+version=1
+encoding="UTF-8"
+CID=8f67ca74
+parentCID=0172e8a4
+createType="vmfsSparse"
+parentFileNameHint="vmfs_thick.vmdk"
+# Extent description
+RW 4096 VMFSSPARSE "vmfs_thick-000001-delta.vmdk"
+
+# The Disk Data Base 
+#DDB
+
+ddb.longContentID = "4b98b55ba6a6bc2e8fd6eb368f67ca74"

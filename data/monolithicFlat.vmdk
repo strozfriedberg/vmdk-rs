@@ -1,0 +1,23 @@
+# Disk DescriptorFile
+version=1
+CID=00000000
+parentCID=ffffffff
+isNativeSnapshot="no"
+createType="monolithicFlat"
+
+# Extent description
+RW 20480 FLAT "monolithicFlat-flat.vmdk" 0
+
+# The Disk Data Base 
+#DDB
+
+ddb.adapterType = "buslogic"
+ddb.geometry.sectors = "17"
+ddb.geometry.heads = "4"
+ddb.geometry.cylinders = "301"
+ddb.uuid = "60 00 C2 9a 1d 7b 49 44-dc 53 e6 d3 e5 89 7b 0d"
+ddb.longContentID = "c30e9133f6a8e34df61188c51010a8cd"
+ddb.encoding = "UTF-8"
+ddb.toolsVersion = "1"
+ddb.virtualHWVersion = "7"
+ddb.deletable = "true"
