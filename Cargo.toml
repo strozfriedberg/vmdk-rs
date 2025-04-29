@@ -1,5 +1,5 @@
 [package]
-name = "vmdk"
+name = "vmdk-rs"
 version = "0.1.0"
 authors = ["Aon"]
 edition = "2021"
