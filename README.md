@@ -1,7 +1,9 @@
-# Library to read data from the VMware Virtual Disk (VMDK) files.
+# vmdk-rs 
+
+`vmdk-rs` is a Rust library to read data from the VMware Virtual Disk (VMDK) files.
+This project is in active development and is intended for forensic research and testing.
 
 ### Read supported extent file formats:
-
 * RAW (flat)
 * COWD (sparse)
 * VMDK (sparse)
@@ -37,3 +39,6 @@ Sample of usage:
     }
 
 ```
+
+### Copyright
+Copyright 2025, Aon. `vmdk-rs` is licensed under the Apache License, Version 2.0.
