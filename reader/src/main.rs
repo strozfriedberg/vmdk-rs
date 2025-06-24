@@ -15,20 +15,20 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
     let mut offset = 0;
     while offset < vmdk_reader.total_size {
         let buf_size = buf.len();
-        let readed = match vmdk_reader.read_at_offset(offset, &mut buf[..buf_size]) {
+        let read = match vmdk_reader.read_at_offset(offset, &mut buf[..buf_size]) {
             Ok(v) => v,
             Err(e) => {
                 panic!("{:?}", e);
             }
         };
 
-        if readed == 0 {
+        if read == 0 {
             break;
         }
 
-        hasher.update(&buf[..readed]);
+        hasher.update(&buf[..read]);
 
-        offset += readed as u64;
+        offset += read as u64;
     }
     let result = hasher.finalize();
     format!("{:X}", result)
