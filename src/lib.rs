@@ -53,7 +53,8 @@ mod test {
             //println!("\"{}\" => \"{}\",", vmdk_paths[0], hash);
 
             hash.to_string()
-        } else if cfg!(target_os = "linux") {
+        }
+        else if cfg!(target_os = "linux") {
             static PREDEFINED_HASHES: phf::Map<&'static str, &'static str> = phf_map! {
                 "data/streamOptimizedWithMarkers.vmdk" => "B6FD01DD1B93B3589E6D76F7507AF55C589EF69D",
                 // copy-paste here:
@@ -69,7 +70,8 @@ mod test {
                 .get(vmdk_paths[0])
                 .unwrap_or_else(|| panic!("TODO: No predefined hash for {}", vmdk_paths[0]))
                 .to_string()
-        } else {
+        }
+        else {
             todo!("unknown platform")
         }
     }
