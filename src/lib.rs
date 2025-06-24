@@ -3,7 +3,7 @@ pub mod vmdk_reader;
 
 extern crate phf;
 
-#[allow(unused)]
+#[cfg(test)]
 mod test {
     use crate::vmdk_reader::VmdkReader;
     use phf::phf_map;
