@@ -1,17 +1,14 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::LinkedList;
-use std::fmt;
-use std::fs;
-use std::fs::File;
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-use std::ops::Deref;
-use std::path::Path;
-use std::path::PathBuf;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, LinkedList},
+    fmt,
+    fs::{self, File},
+    io::{Read, Seek, SeekFrom},
+    ops::Deref,
+    path::{Path, PathBuf}
+};
 
 extern crate kaitai;
 use self::kaitai::*;
