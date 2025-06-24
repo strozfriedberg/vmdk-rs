@@ -1,5 +1,7 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::{
     cell::RefCell,
     collections::{HashMap, LinkedList},
@@ -198,12 +200,14 @@ impl VmdkReader {
         ))
     }
 
-    fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
+     fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
+        static PAT: Lazy<Regex> = Lazy::new(|| 
+            Regex::new(r#"^parentFileNameHint="([^"]+)"#)
+                .expect("bad regex")
+        );
+
         for line in descriptor.lines() {
-            if let Some(captures) = regex::Regex::new(r#"^parentFileNameHint="([^"]+)"#)
-                .unwrap()
-                .captures(line)
-            {
+            if let Some(captures) = PAT.captures(line) {
                 return Some(captures[1].to_string());
             }
         }
@@ -211,17 +215,17 @@ impl VmdkReader {
     }
 
     fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
+        static PAT: Lazy<Regex> = Lazy::new(||
+            Regex::new(r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#)
+                .expect("bad regex")
+        );
+
         let mut ed: Vec<ED> = Vec::new();
 
         for line in descriptor.lines() {
             if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
             {
-                if let Some(captures) = regex::Regex::new(
-                    r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#,
-                )
-                .unwrap()
-                .captures(line)
-                {
+                if let Some(captures) = PAT.captures(line) {
                     // ignore access mode (captures[1])
                     let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
                         SimpleError::new(format!(
