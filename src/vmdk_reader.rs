@@ -67,7 +67,7 @@ impl fmt::Debug for ExtentDesc {
 
 #[derive(Debug)]
 pub struct VmdkReader {
-    pub total_size: u64,
+    image_size: u64,
     extents: LinkedList<Vec<ExtentDesc>>,
 }
 
@@ -287,7 +287,7 @@ impl VmdkReader {
             }
         }
         Ok(Self {
-            total_size,
+            image_size: total_size,
             extents,
         })
     }
@@ -599,5 +599,9 @@ impl VmdkReader {
         }
 
         Ok(bytes_read)
+    }
+
+    pub fn total_size(&self) -> u64 {
+        self.image_size
     }
 }

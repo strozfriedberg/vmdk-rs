@@ -1,29 +1,24 @@
 mod generated;
 pub mod vmdk_reader;
 
-extern crate phf;
-
 #[cfg(test)]
 mod test {
     use crate::vmdk_reader::VmdkReader;
-    use phf::phf_map;
     use sha1::{Digest, Sha1};
-    use std::process::Command;
 
-    fn do_hash(vmdk_path: &str) -> String /*hash*/ {
+    #[track_caller]
+    fn do_hash(vmdk_path: &str) -> String {
         let vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
 
         let mut hasher = Sha1::new();
         let mut buf: Vec<u8> = vec![0; 1048576];
         let mut offset = 0;
-        while offset < vmdk_reader.total_size {
+
+        while offset < vmdk_reader.total_size() {
             let buf_size = buf.len();
-            let read = match vmdk_reader.read_at_offset(offset, &mut buf[..buf_size]) {
-                Ok(v) => v,
-                Err(e) => {
-                    panic!("{:?}", e);
-                }
-            };
+            let read = vmdk_reader
+                .read_at_offset(offset, &mut buf[..buf_size])
+                .unwrap();
 
             if read == 0 {
                 break;
@@ -37,62 +32,75 @@ mod test {
         format!("{:X}", result)
     }
 
-    fn do_hash_vmdk_dump(vmdk_paths: &[&str]) -> String {
-        if cfg!(target_os = "windows") {
-            let hash = Command::new("tools/vmdk_dump")
-                .args(vmdk_paths.iter().map(|a| a.replace('/', "\\")))
-                .output()
-                .expect("Failed to execute vmdk_dump");
-            if !hash.status.success() {
-                panic!("{}", String::from_utf8(hash.stderr).unwrap());
-            }
-            let hash = String::from_utf8(hash.stdout).unwrap();
-            let hash = hash.split(' ').last().unwrap().trim();
-
-            // uncomment next line and run tests under Windows, then copy-paste to PREDEFINED_HASHES
-            //println!("\"{}\" => \"{}\",", vmdk_paths[0], hash);
-
-            hash.to_string()
-        }
-        else if cfg!(target_os = "linux") {
-            static PREDEFINED_HASHES: phf::Map<&'static str, &'static str> = phf_map! {
-                "data/streamOptimizedWithMarkers.vmdk" => "B6FD01DD1B93B3589E6D76F7507AF55C589EF69D",
-                // copy-paste here:
-                "data/vmfs_thick-000001.vmdk" => "2CCF34D146EF98204D1889FC44E94AD94E0B1CB6",
-                "data/vmfs_thick.vmdk" => "17EAF058191C5F2639D8F983CA7633E4F47087D1",
-                "data/twoGbMaxExtentSparse.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
-                "data/twoGbMaxExtentFlat.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
-                "data/streamOptimized.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
-                "data/monolithicSparse.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
-                "data/monolithicFlat.vmdk" => "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989",
-            };
-            PREDEFINED_HASHES
-                .get(vmdk_paths[0])
-                .unwrap_or_else(|| panic!("TODO: No predefined hash for {}", vmdk_paths[0]))
-                .to_string()
-        }
-        else {
-            todo!("unknown platform")
-        }
+    #[track_caller]
+    fn assert_hash(
+        image_path: &str,
+        expected: &str
+    ) {
+        assert_eq!(do_hash(image_path), expected);
     }
 
     #[test]
-    fn test_all_images() {
-        let do_hash2 = |vmdk_paths: &[&str]| {
-            for (i, s) in vmdk_paths.iter().enumerate() {
-                assert_eq!(do_hash(s), do_hash_vmdk_dump(&vmdk_paths[i..]));
-            }
-        };
-        do_hash2(&["data/vmfs_thick-000001.vmdk", "data/vmfs_thick.vmdk"]);
-        do_hash2(&["data/twoGbMaxExtentSparse.vmdk"]);
-        do_hash2(&["data/twoGbMaxExtentFlat.vmdk"]);
-        do_hash2(&["data/streamOptimized.vmdk"]);
-        do_hash2(&["data/monolithicSparse.vmdk"]);
-        do_hash2(&["data/monolithicFlat.vmdk"]);
+    fn test_vmfs_thick_000001_vmdk() {
+        assert_hash(
+            "data/vmfs_thick-000001.vmdk",
+            "2CCF34D146EF98204D1889FC44E94AD94E0B1CB6",
+        );
+    }
 
+    #[test]
+    fn test_vmfs_thick_vmdk() {
+        assert_hash(
+            "data/vmfs_thick.vmdk",
+            "17EAF058191C5F2639D8F983CA7633E4F47087D1"
+        );
+    }
+
+    #[test]
+    fn test_two_gb_max_extent_sparse_vmdk() {
+        assert_hash(
+            "data/twoGbMaxExtentSparse.vmdk",
+            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
+        );
+    }
+
+    #[test]
+    fn test_two_gb_max_extent_flat_vmdk() {
+        assert_hash(
+            "data/twoGbMaxExtentFlat.vmdk",
+            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
+        );
+    }
+
+    #[test]
+    fn test_stream_optimized_vmdk() {
+        assert_hash(
+            "data/streamOptimized.vmdk",
+            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
+        );
+    }
+
+    #[test]
+    fn test_monolithic_sparse_vmdk() {
+        assert_hash(
+            "data/monolithicSparse.vmdk",
+            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
+        );
+    }
+
+    #[test]
+    fn test_monolithic_flat_vmdk() {
+        assert_hash(
+            "data/monolithicFlat.vmdk",
+            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
+        );
+    }
+
+    #[test]
+    fn test_stream_optimized_with_markers_vmdk() {
         // vmdk_dump.exe crashes on this stream optimized image with markers
-        assert_eq!(
-            do_hash("data/streamOptimizedWithMarkers.vmdk"),
+        assert_hash(
+            "data/streamOptimizedWithMarkers.vmdk",
             "B6FD01DD1B93B3589E6D76F7507AF55C589EF69D"
         );
     }
