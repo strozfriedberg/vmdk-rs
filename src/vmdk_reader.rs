@@ -270,7 +270,7 @@ fn read_extents<T: AsRef<Path>>(
     is_bin: bool,
 ) -> Result<Vec<ExtentDesc>, SimpleError> {
     let ed = extract_ed_values(descriptor)?;
-    let mut extents: Vec<ExtentDesc> = Vec::new();
+    let mut extents = vec![];
     let mut grain_size = 0;
     let mut grain_table_start_index = 0;
     for i in &ed {
@@ -352,7 +352,7 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
             .expect("bad regex")
     );
 
-    let mut ed: Vec<ED> = Vec::new();
+    let mut ed = vec![];
 
     for line in descriptor.lines() {
         if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
@@ -516,7 +516,7 @@ fn read_and_decompress_grain(
     file.read_exact(buffer.as_mut_slice())?;
 
     let mut decoder = DeflateDecoder::new(&*buffer.as_mut_slice());
-    let mut decoded_data = Vec::new();
+    let mut decoded_data = vec![];
     decoder.read_to_end(&mut decoded_data)?;
 
     Ok(decoded_data)
