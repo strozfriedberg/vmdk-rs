@@ -119,6 +119,39 @@ struct VmdkSparseFileHeader {
 }
 
 impl VmdkReader {
+    pub fn open<T: AsRef<Path>>(f: T) -> Result<Self, SimpleError> {
+        let mut total_size = 0;
+        let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
+        let mut current_fn = PathBuf::from(f.as_ref());
+        loop {
+            let (descriptor, is_bin) = Self::read_descriptor(current_fn.as_path())?;
+            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor, is_bin)?;
+            let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
+            if total_size == 0 {
+                total_size = total_size0;
+            }
+            else if total_size != total_size0 {
+                return Err(SimpleError::new(format!(
+                    "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
+                    total_size,
+                    total_size0,
+                    current_fn.to_string_lossy()
+                )));
+            }
+            extents.push_back(extents0);
+            if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
+                current_fn.set_file_name(next_fn);
+            }
+            else {
+                break;
+            }
+        }
+        Ok(Self {
+            image_size: total_size,
+            extents,
+        })
+    }
+
     fn open_bin<T: AsRef<Path>>(f: T) -> Result<VmdkSparseFileHeader, SimpleError> {
         let io = BytesReader::open(f).unwrap();
 
@@ -260,39 +293,6 @@ impl VmdkReader {
         }
 
         Ok(ed)
-    }
-
-    pub fn open<T: AsRef<Path>>(f: T) -> Result<Self, SimpleError> {
-        let mut total_size = 0;
-        let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
-        let mut current_fn = PathBuf::from(f.as_ref());
-        loop {
-            let (descriptor, is_bin) = Self::read_descriptor(current_fn.as_path())?;
-            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor, is_bin)?;
-            let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
-            if total_size == 0 {
-                total_size = total_size0;
-            }
-            else if total_size != total_size0 {
-                return Err(SimpleError::new(format!(
-                    "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
-                    total_size,
-                    total_size0,
-                    current_fn.to_string_lossy()
-                )));
-            }
-            extents.push_back(extents0);
-            if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
-                current_fn.set_file_name(next_fn);
-            }
-            else {
-                break;
-            }
-        }
-        Ok(Self {
-            image_size: total_size,
-            extents,
-        })
     }
 
     fn read_descriptor<T: AsRef<Path>>(f: T) -> Result<(String, bool), SimpleError> {
