@@ -13,12 +13,10 @@ use std::{
 };
 
 extern crate kaitai;
-use self::kaitai::*;
+use self::kaitai::{BytesReader, KError, KStream, KStruct};
 
 use crate::generated::vmware_cowd::*;
 use crate::generated::vmware_vmdk::*;
-
-use simple_error::SimpleError;
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -118,161 +116,221 @@ struct VmdkSparseFileHeader {
     descriptor: String,
 }
 
-impl VmdkReader {
-    pub fn open<T: AsRef<Path>>(
-        image_path: T
-    ) -> Result<Self, SimpleError>
-    {
-        let mut total_size = 0;
-        let mut extents = vec![];
-        let mut current_fn = PathBuf::from(image_path.as_ref());
+#[derive(Debug, thiserror::Error)]
+pub enum IoError {
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
+    #[error("{0:?}")]
+    ReadError(KError),
+    #[error("Seek to {0} failed: {1:?}")]
+    SeekError(usize, KError)
+}
 
-        loop {
-            let (descriptor, is_bin) = Self::read_descriptor(current_fn.as_path())?;
-            let extents0 = Self::read_extents(current_fn.as_path(), &descriptor, is_bin)?;
-            let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
-            if total_size == 0 {
-                total_size = total_size0;
-            }
-            else if total_size != total_size0 {
-                return Err(SimpleError::new(format!(
-                    "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
-                    total_size,
-                    total_size0,
-                    current_fn.to_string_lossy()
-                )));
-            }
-            extents.push(extents0);
-            if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
-                current_fn.set_file_name(next_fn);
-            }
-            else {
-                break;
-            }
-        }
+#[derive(Debug, thiserror::Error)]
+pub enum OpenError {
+    #[error("Error reading {path}: {source}")]
+    IoError {
+        path: PathBuf,
+        #[source]
+        source: IoError
+    },
+    #[error("{0}: expected size of parent extent descriptor {1}, actual {2}")]
+    BadParentExtentDescriptorSize(PathBuf, u64, u64),
+    #[error("{path}: error reading descriptor: {source}")]
+    DescriptorError {
+        path: PathBuf,
+        #[source]
+        source: DescriptorError
+    },
+    #[error("{path}: {source}")]
+    DeserializationFailed {
+        path: PathBuf,
+        #[source]
+        source: DeserializationError
+    },
+    #[error("{0}: No KDMV or COWD headers detected")]
+    InvalidFileHeader(PathBuf)
+}
 
-        Ok(Self {
-            image_size: total_size,
-            extents,
-        })
-    }
-
-fn read_descriptor<T: AsRef<Path>>(
-    image_path: T
-) -> Result<(String, bool), SimpleError>
-{
-    match open_bin(&image_path) {
-        Ok(header) => {
-            Ok((header.descriptor, true))
-        },
-        Err(_) => {
-            Ok((
-                fs::read_to_string(&image_path)
-                    .map_err(|e| SimpleError::new(format!(
-                        "Error while reading the file {}: {:?}",
-                        image_path.as_ref().to_string_lossy(),
-                        e
-                    )))?,
-                false
-            ))
+impl From<KError> for OpenError {
+    fn from(e: KError) -> Self {
+        Self::IoError {
+            path: "".into(), // set using with_path()
+            source: IoError::ReadError(e)
         }
     }
 }
 
-fn open_bin<T: AsRef<Path>>(
-    image_path: T
-) -> Result<VmdkSparseFileHeader, SimpleError>
-{
-    let io = BytesReader::open(image_path).unwrap();
-
-    let first_bytes = io
-        .read_bytes(4)
-        .map_err(|e| SimpleError::new(format!("read_bytes error: {:?}", e)))?;
-
-    io.seek(0)
-        .map_err(|e| SimpleError::new(format!("seek error: {:?}", e)))?;
-
-    if first_bytes == vec![0x43u8, 0x4Fu8, 0x57u8, 0x44u8]
-    // COWD
-    {
-        match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
-            Ok(h) => {
-                return Ok(VmdkSparseFileHeader {
-                    io,
-                    size_max: *h.size_max() as u64,
-                    size_grain: *h.size_grain() as u64,
-                    grain_dir: *h.grain_dir() as u64,
-                    num_grain_table_entries: *h.num_grain_table_entries(),
-                    zeroed_grain_table_entry: false,
-                    has_compressed_grain: false,
-                    descriptor: "".to_string(),
-                });
-            }
-            Err(e) => {
-                return Err(SimpleError::new(format!(
-                    "Error while deserializing VmwareCowd struct: {:?}",
-                    e
-                )));
-            }
+impl From<DescriptorError> for OpenError {
+    fn from(e: DescriptorError) -> Self {
+        Self::DescriptorError {
+            path: "".into(), // set using with_path()
+            source: e
         }
     }
-    else if first_bytes == vec![0x4Bu8, 0x44u8, 0x4Du8, 0x56u8]
-    // KDMV
-    {
-        let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
-            SimpleError::new(format!(
-                "Error while deserializing VmwareVmdk struct: {:?}",
-                e
-            ))
-        })?;
+}
 
-        if *h.start_primary_grain() == -1
-            && *h.compression_method() == VmwareVmdk_CompressionMethods::Deflate
-        {
-            // If the grain directory sector number value is -1 (0xffffffffffffffff) (GD_AT_END)
-            // in a Stream-Optimized Compressed Sparse Extent there should be a secondary file header
-            // stored at offset -1024 relative from the end of the file (stream)
-            io.seek(io.size() - 1024)
-                .map_err(|e| SimpleError::new(format!("seek error: {:?}", e)))?;
-
-            h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
-                SimpleError::new(format!(
-                    "Error while deserializing VmwareVmdk struct: {:?}",
-                    e
-                ))
-            })?;
+impl From<DeserializationError> for OpenError {
+    fn from(e: DeserializationError) -> Self {
+        Self::DeserializationFailed {
+            path: "".into(), // set using with_path()
+            source: e
         }
+    }
+}
 
-        return Ok(VmdkSparseFileHeader {
+impl From<std::io::Error> for OpenError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError {
+            path: "".into(), // set using with_path()
+            source: IoError::IoError(e)
+        }
+    }
+}
+
+impl From<IoError> for OpenError {
+    fn from(e: IoError) -> Self {
+        Self::IoError {
+            path: "".into(), // set using with_path()
+            source: e
+        }
+    }
+}
+
+impl OpenError {
+    fn with_path<T: AsRef<Path>>(self, path: T) -> Self {
+        match self {
+            Self::IoError { source, .. } => Self::IoError {
+                path: path.as_ref().into(),
+                source
+            },
+            _ => self
+        }
+    }
+}
+
+fn read_descriptor<T: AsRef<Path>>(
+    image_path: T
+) -> Result<(String, bool), OpenError>
+{
+// FIXME: don't swallow errors from open_bin
+    match open_bin(&image_path) {
+        Ok(header) => Ok((header.descriptor, true)),
+        Err(_) => Ok((
+            fs::read_to_string(&image_path)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(&image_path))?,
+            false
+        ))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Error while deserializing {0} struct: {1:?}")]
+struct DeserializationError(&'static str, KError);
+
+fn try_vmware_cowd_header(
+    io: BytesReader
+) -> Result<VmdkSparseFileHeader, DeserializationError>
+{
+    match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
+        Ok(h) => Ok(VmdkSparseFileHeader {
             io,
             size_max: *h.size_max() as u64,
             size_grain: *h.size_grain() as u64,
-            grain_dir: if *h.flags().use_secondary_grain_dir() {
-                *h.start_secondary_grain() as u64
-            } else {
-                *h.start_primary_grain() as u64
-            },
-            num_grain_table_entries: *h.num_grain_table_entries() as u32,
-            zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
-            has_compressed_grain: *h.flags().has_compressed_grain(),
-            descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref()).to_string(),
-        });
+            grain_dir: *h.grain_dir() as u64,
+            num_grain_table_entries: *h.num_grain_table_entries(),
+            zeroed_grain_table_entry: false,
+            has_compressed_grain: false,
+            descriptor: "".into(),
+        }),
+        Err(e) => Err(DeserializationError("VmwareCowd struct", e))
+    }
+}
+
+fn try_vmware_vmdk_header(
+    io: BytesReader
+) -> Result<VmdkSparseFileHeader, DeserializationError>
+{
+     let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
+        .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
+
+    if *h.start_primary_grain() == -1
+        && *h.compression_method() == VmwareVmdk_CompressionMethods::Deflate
+    {
+        // If the grain directory sector number value is -1
+        // (0xffffffffffffffff) (GD_AT_END) in a Stream-Optimized Compressed
+        // Sparse Extent there should be a secondary file header stored at
+        // offset -1024 relative from the end of the file (stream)
+        io.seek(io.size() - 1024)
+            .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
+
+        h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
+            .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
     }
 
-    Err(SimpleError::new(
-        "No KDMV nor COWD headers detected".to_string(),
-    ))
+    let grain_dir = if *h.flags().use_secondary_grain_dir() {
+        *h.start_secondary_grain() as u64
+    }
+    else {
+        *h.start_primary_grain() as u64
+    };
+
+    let hdr = VmdkSparseFileHeader {
+        io,
+        size_max: *h.size_max() as u64,
+        size_grain: *h.size_grain() as u64,
+        grain_dir,
+        num_grain_table_entries: *h.num_grain_table_entries() as u32,
+        zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
+        has_compressed_grain: *h.flags().has_compressed_grain(),
+        descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref()).into()
+    };
+
+    Ok(hdr)
+}
+
+fn open_bin<T: AsRef<Path>>(
+    image_path: T
+) -> Result<VmdkSparseFileHeader, OpenError>
+{
+    let io = BytesReader::open(&image_path)
+        .map_err(OpenError::from)
+        .map_err(|e| e.with_path(&image_path))?;
+
+    let first_bytes = io
+        .read_bytes(4)
+        .map_err(|e| IoError::SeekError(4, e))
+        .map_err(OpenError::from)
+        .map_err(|e| e.with_path(&image_path))?;
+
+    io.seek(0)
+        .map_err(|e| IoError::SeekError(4, e))
+        .map_err(OpenError::from)
+        .map_err(|e| e.with_path(&image_path))?;
+
+    match first_bytes.as_slice() {
+        // COWD
+        [0x43u8, 0x4Fu8, 0x57u8, 0x44u8] => Ok(try_vmware_cowd_header(io)?),
+        // KDMV
+        [0x4Bu8, 0x44u8, 0x4Du8, 0x56u8] => Ok(try_vmware_vmdk_header(io)?),
+        _ => Err(OpenError::InvalidFileHeader(image_path.as_ref().into()))
+    }
 }
 
 fn read_extents<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
     is_bin: bool,
-) -> Result<Vec<ExtentDesc>, SimpleError> {
-    let ed = extract_ed_values(descriptor)?;
+) -> Result<Vec<ExtentDesc>, OpenError> {
+    let ed = extract_ed_values(descriptor)
+        .map_err(OpenError::from)
+        .map_err(|e| e.with_path(&image_path))?;
+
     let mut extents = vec![];
     let mut grain_size = 0;
     let mut grain_table_start_index = 0;
+
     for i in &ed {
         if i.kind != Kind::SPARSE
             && i.kind != Kind::FLAT
@@ -281,33 +339,36 @@ fn read_extents<T: AsRef<Path>>(
         {
             todo!("TODO: support {:?}", i.kind);
         }
+
         let mut ed_fn = image_path.as_ref().with_file_name(&i.filename);
         if is_bin && ed.len() == 1 && fs::metadata(&ed_fn).is_err() {
             // if 1st filename is wrong and we are bin - try to use current file
             ed_fn = image_path.as_ref().to_path_buf();
         }
+
         let mut has_compressed_grain = false;
         let mut zero_grain_table_entry = false;
-        let grain_table = if i.kind == Kind::SPARSE || i.kind == Kind::VMFSSPARSE {
-            let header = open_bin(&ed_fn)?;
-            has_compressed_grain = header.has_compressed_grain;
-            zero_grain_table_entry = header.zeroed_grain_table_entry;
-            grain_size = header.size_grain;
-            Some(read_grain_table(
-                &mut grain_table_start_index,
-                &header,
-                i.kind,
-            )?)
-        }
-        else {
-            None
+        let grain_table = match i.kind {
+            Kind::SPARSE | Kind::VMFSSPARSE => {
+                let header = open_bin(&ed_fn)?;
+                has_compressed_grain = header.has_compressed_grain;
+                zero_grain_table_entry = header.zeroed_grain_table_entry;
+                grain_size = header.size_grain;
+                Some(
+                    read_grain_table(
+                        &mut grain_table_start_index,
+                        &header,
+                        i.kind,
+                    )?
+                )
+            },
+            _ => None
         };
-        let file = File::open(&ed_fn).map_err(|e| {
-            SimpleError::new(format!(
-                "Can't open file {}, error: {e:?}",
-                image_path.as_ref().to_string_lossy()
-            ))
-        })?;
+
+        let file = File::open(&ed_fn)
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(&image_path))?;
+
         let ed = ExtentDesc {
             file: RefCell::new(file),
             filename: ed_fn.to_string_lossy().to_string(),
@@ -326,9 +387,11 @@ fn read_extents<T: AsRef<Path>>(
         }
         extents.push(ed);
     }
+
     for i in 1..extents.len() {
         extents[i].start_sector = extents[i - 1].start_sector + extents[i - 1].sectors;
     }
+
     Ok(extents)
 }
 
@@ -346,7 +409,15 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
     None
 }
 
-fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
+#[derive(Debug, thiserror::Error)]
+pub enum DescriptorError {
+    #[error("failed to parse '{0}' as a u64")]
+    U64ParseError(String),
+    #[error("failed to parse '{0}' as Kind enum")]
+    KindParseError(String)
+}
+
+fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
     static PAT: Lazy<Regex> = Lazy::new(||
         Regex::new(r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#)
             .expect("bad regex")
@@ -355,28 +426,23 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, SimpleError> {
     let mut ed = vec![];
 
     for line in descriptor.lines() {
-        if line.starts_with("RW") || line.starts_with("RDONLY") || line.starts_with("NOACCESS")
+        if line.starts_with("RW") ||
+           line.starts_with("RDONLY") ||
+           line.starts_with("NOACCESS")
         {
             if let Some(captures) = PAT.captures(line) {
                 // ignore access mode (captures[1])
-                let sectors = captures[2].to_string().parse::<u64>().map_err(|e| {
-                    SimpleError::new(format!(
-                        "can't parse value '{}' to u64: {:?}",
-                        &captures[2], e
-                    ))
-                })?;
-                let kind = Kind::from_str(&captures[3]).ok_or_else(|| SimpleError::new(format!(
-                    "can't parse {} to Kind enum",
-                    &captures[3]
-                )))?;
+                let sectors = captures[2].parse::<u64>()
+                    .map_err(|_| DescriptorError::U64ParseError(captures[2].into()))?;
+
+                let kind = Kind::from_str(&captures[3]).ok_or_else(||
+                    DescriptorError::KindParseError(captures[3].into()))?;
+
                 let filename = captures[4].to_string();
+
                 let offset = match captures.get(5) {
-                    Some(v) => v.as_str().to_string().parse::<u64>().map_err(|e| {
-                        SimpleError::new(format!(
-                            "can't parse value '{}' to u64: {:?}",
-                            &captures[5], e
-                        ))
-                    })?,
+                    Some(v) => v.as_str().parse::<u64>()
+                        .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?,
                     None => 0,
                 };
 
@@ -397,7 +463,7 @@ fn read_grain_table(
     grain_table_start_index: &mut u64,
     h: &VmdkSparseFileHeader,
     kind: Kind,
-) -> Result<HashMap<u64, u64>, SimpleError> {
+) -> Result<HashMap<u64, u64>, IoError> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
     let size_max = h.size_max * 512;
@@ -411,16 +477,20 @@ fn read_grain_table(
             number_of_grain_directory_entries += 1;
         }
     }
+
     let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
+
     // get and read metadata-0
     h.io.seek(h.grain_dir as usize * 512)
-        .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
+        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
+
     let grain_dir_entries: Vec<u64> =
         h.io.read_bytes(number_of_grain_directory_entries as usize * 4)
-            .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
+            .map_err(IoError::ReadError)?
             .chunks_exact(4)
             .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
             .collect();
+
     // get and read metadata-1
     for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
         let grain_table1_elems = if kind == Kind::SPARSE {
@@ -441,12 +511,13 @@ fn read_grain_table(
             *grain_table_start_index += grain_table1_elems as u64;
             continue;
         }
+
         h.io.seek(*grain_table_offset as usize)
-            .map_err(|e| SimpleError::new(format!("seek err: {:?}", e)))?;
+            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
 
         let grain_table: Vec<u64> =
             h.io.read_bytes(grain_table1_elems * 4)
-                .map_err(|e| SimpleError::new(format!("read_bytes err: {:?}", e)))?
+                .map_err(IoError::ReadError)?
                 .chunks_exact(4)
                 .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
                 .collect();
@@ -458,8 +529,10 @@ fn read_grain_table(
             let old = grain_table_all.insert(*grain_table_start_index + i as u64, *grain);
             debug_assert!(old.is_none());
         }
+
         *grain_table_start_index += grain_table.len() as u64;
     }
+
     Ok(grain_table_all)
 }
 
@@ -481,6 +554,10 @@ fn get_extent_from_offset<'a>(
 
     None
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("Sanity check failed for grain index {0}")]
+struct CrazyGrainIndex(u64);
 
 fn read_and_decompress_grain(
     extent_desc: &ExtentDesc,
@@ -505,10 +582,7 @@ fn read_and_decompress_grain(
     if header % 31 != 0 || header & 0x0F00 != 8 << 8 || header & 0x0020 != 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            SimpleError::new(format!(
-                "Sanity check failed for grain index {}",
-                grain_index
-            )),
+            CrazyGrainIndex(grain_index)
         ));
     }
 
@@ -525,28 +599,32 @@ fn read_and_decompress_grain(
 impl VmdkReader {
     pub fn open<T: AsRef<Path>>(
         image_path: T
-    ) -> Result<Self, SimpleError>
+    ) -> Result<Self, OpenError>
     {
         let mut total_size = 0;
         let mut extents = vec![];
         let mut current_fn = PathBuf::from(image_path.as_ref());
 
         loop {
-            let (descriptor, is_bin) = read_descriptor(current_fn.as_path())?;
-            let extents0 = read_extents(current_fn.as_path(), &descriptor, is_bin)?;
+            let (descriptor, is_bin) = read_descriptor(&current_fn)?;
+            let extents0 = read_extents(
+                current_fn.as_path(),
+                &descriptor,
+                is_bin
+            )?;
+
             let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
             if total_size == 0 {
                 total_size = total_size0;
             }
             else if total_size != total_size0 {
-                return Err(SimpleError::new(format!(
-                    "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
-                    total_size,
-                    total_size0,
-                    current_fn.to_string_lossy()
-                )));
+                return Err(OpenError::BadParentExtentDescriptorSize(
+                    current_fn, total_size, total_size0)
+                );
             }
+
             extents.push(extents0);
+
             if let Some(next_fn) = extract_parent_fn_hint(&descriptor) {
                 current_fn.set_file_name(next_fn);
             }

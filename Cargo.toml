@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dependencies]
 kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
-simple-error = "*"
 regex = "^1"
 flate2 = "^1"
 byteorder = "^1.5"
