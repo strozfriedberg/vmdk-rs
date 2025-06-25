@@ -300,22 +300,26 @@ impl VmdkReader {
         Ok(ed)
     }
 
-    fn read_descriptor<T: AsRef<Path>>(f: T) -> Result<(String, bool), SimpleError> {
-        let header = Self::open_bin(&f);
-        let text_format = header.is_err();
-        let descriptor = if text_format {
-            fs::read_to_string(&f).map_err(|e| {
-                SimpleError::new(format!(
-                    "Error while reading the file {}: {:?}",
-                    f.as_ref().to_string_lossy(),
-                    e
+    fn read_descriptor<T: AsRef<Path>>(
+        image_path: T
+    ) -> Result<(String, bool), SimpleError>
+    {
+        match Self::open_bin(&image_path) {
+            Ok(header) => {
+                Ok((header.descriptor, true))
+            },
+            Err(_) => {
+                Ok((
+                    fs::read_to_string(&image_path)
+                        .map_err(|e| SimpleError::new(format!(
+                            "Error while reading the file {}: {:?}",
+                            image_path.as_ref().to_string_lossy(),
+                            e
+                        )))?,
+                    false
                 ))
-            })?
+            }
         }
-        else {
-            header?.descriptor
-        };
-        Ok((descriptor, !text_format))
     }
 
     fn read_extents<T: AsRef<Path>>(
