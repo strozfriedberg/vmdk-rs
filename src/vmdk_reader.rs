@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
     cell::RefCell,
-    collections::{HashMap, LinkedList},
+    collections::HashMap,
     fmt,
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
@@ -68,7 +68,7 @@ impl fmt::Debug for ExtentDesc {
 #[derive(Debug)]
 pub struct VmdkReader {
     image_size: u64,
-    extents: LinkedList<Vec<ExtentDesc>>,
+    extents: Vec<Vec<ExtentDesc>>,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -124,7 +124,7 @@ impl VmdkReader {
     ) -> Result<Self, SimpleError>
     {
         let mut total_size = 0;
-        let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
+        let mut extents = vec![];
         let mut current_fn = PathBuf::from(image_path.as_ref());
 
         loop {
@@ -142,7 +142,7 @@ impl VmdkReader {
                     current_fn.to_string_lossy()
                 )));
             }
-            extents.push_back(extents0);
+            extents.push(extents0);
             if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
                 current_fn.set_file_name(next_fn);
             }
