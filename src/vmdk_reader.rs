@@ -152,7 +152,8 @@ impl VmdkReader {
                     )));
                 }
             }
-        } else if first_bytes == vec![0x4Bu8, 0x44u8, 0x4Du8, 0x56u8]
+        }
+        else if first_bytes == vec![0x4Bu8, 0x44u8, 0x4Du8, 0x56u8]
         // KDMV
         {
             let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None).map_err(|e| {
@@ -271,7 +272,8 @@ impl VmdkReader {
             let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
             if total_size == 0 {
                 total_size = total_size0;
-            } else if total_size != total_size0 {
+            }
+            else if total_size != total_size0 {
                 return Err(SimpleError::new(format!(
                     "Size of all parent extent descriptors should equal to {}, we got {}, file {}",
                     total_size,
@@ -282,7 +284,8 @@ impl VmdkReader {
             extents.push_back(extents0);
             if let Some(next_fn) = Self::extract_parent_fn_hint(&descriptor) {
                 current_fn.set_file_name(next_fn);
-            } else {
+            }
+            else {
                 break;
             }
         }
@@ -303,7 +306,8 @@ impl VmdkReader {
                     e
                 ))
             })?
-        } else {
+        }
+        else {
             header?.descriptor
         };
         Ok((descriptor, !text_format))
@@ -343,7 +347,8 @@ impl VmdkReader {
                     &header,
                     i.kind,
                 )?)
-            } else {
+            }
+            else {
                 None
             };
             let file = File::open(&ed_fn).map_err(|e| {
@@ -411,10 +416,12 @@ impl VmdkReader {
                     let rest = size_max % grain_table0_size;
                     (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
                         as usize
-                } else {
+                }
+                else {
                     h.num_grain_table_entries as usize
                 }
-            } else {
+            }
+            else {
                 4096
             };
 
@@ -454,7 +461,8 @@ impl VmdkReader {
         for i in extents {
             if sector_num >= i.start_sector && sector_num < i.start_sector + i.sectors {
                 return Some(i);
-            } else {
+            }
+            else {
                 *local_offset -= i.sectors * 512;
             }
         }
@@ -529,7 +537,8 @@ impl VmdkReader {
                 let remaining_size = remaining_buf.len();
                 let remaining_grain_size = if grain_size > 0 {
                     remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                } else {
+                }
+                else {
                     remaining_size
                 };
 
@@ -543,7 +552,8 @@ impl VmdkReader {
                             // if this is last vmdk-file
                             if ex_pos == self.extents.len() - 1 {
                                 remaining_buf[..remaining_grain_size].fill(0);
-                            } else {
+                            }
+                            else {
                                 // check in next
                                 continue;
                             }
@@ -552,7 +562,8 @@ impl VmdkReader {
                             // handle zero GTE
                             if extent_desc.zero_grain_table_entry && *sector_num == 1 {
                                 remaining_buf[..remaining_grain_size].fill(0);
-                            } else {
+                            }
+                            else {
                                 let seek_pos = *sector_num * SECTOR_SIZE;
                                 extent_desc
                                     .file
@@ -560,7 +571,8 @@ impl VmdkReader {
                                     .seek(SeekFrom::Start(seek_pos))?;
                                 let grain_data = if extent_desc.has_compressed_grain {
                                     Self::read_and_decompress_grain(extent_desc, grain_index)?
-                                } else {
+                                }
+                                else {
                                     // calculate real sector and read whole grain
                                     let mut data = vec![0u8; grain_size as usize];
                                     extent_desc.file.borrow_mut().read_exact(&mut data)?;
@@ -573,7 +585,8 @@ impl VmdkReader {
                             }
                         }
                     }
-                } else {
+                }
+                else {
                     // FLAT, VMFS
 
                     // handle extent offset only if Kind::FLAT
