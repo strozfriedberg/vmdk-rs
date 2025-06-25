@@ -119,10 +119,14 @@ struct VmdkSparseFileHeader {
 }
 
 impl VmdkReader {
-    pub fn open<T: AsRef<Path>>(f: T) -> Result<Self, SimpleError> {
+    pub fn open<T: AsRef<Path>>(
+        image_path: T
+    ) -> Result<Self, SimpleError>
+    {
         let mut total_size = 0;
         let mut extents: LinkedList<Vec<ExtentDesc>> = LinkedList::new();
-        let mut current_fn = PathBuf::from(f.as_ref());
+        let mut current_fn = PathBuf::from(image_path.as_ref());
+
         loop {
             let (descriptor, is_bin) = Self::read_descriptor(current_fn.as_path())?;
             let extents0 = Self::read_extents(current_fn.as_path(), &descriptor, is_bin)?;
@@ -146,6 +150,7 @@ impl VmdkReader {
                 break;
             }
         }
+
         Ok(Self {
             image_size: total_size,
             extents,
