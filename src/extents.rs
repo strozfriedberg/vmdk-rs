@@ -40,7 +40,7 @@ impl FromStr for Kind {
             "VMFSSPARSE" => Ok(Self::VMFSSPARSE),
             "VMFSRDM" => Ok(Self::VMFSRDM),
             "VMFSRAW" => Ok(Self::VMFSRAW),
-            e => Err(ParseKindError)
+            _ => Err(ParseKindError)
         }
     }
 }
