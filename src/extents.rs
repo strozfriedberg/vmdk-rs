@@ -6,7 +6,8 @@ use std::{
     collections::HashMap,
     fmt,
     fs::{self, File},
-    path::Path
+    path::Path,
+    str::FromStr
 };
 
 use crate::errors::{DescriptorError, IoError, OpenError};
@@ -24,18 +25,22 @@ pub enum Kind {
     VMFSRAW,
 }
 
-impl Kind {
-    fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "SPARSE" => Some(Self::SPARSE),
-            "FLAT" => Some(Self::FLAT),
-            "ZERO" => Some(Self::ZERO),
-            "VMFS" => Some(Self::VMFS),
-            "VMFSSPARSE" => Some(Self::VMFSSPARSE),
-            "VMFSRDM" => Some(Self::VMFSRDM),
-            "VMFSRAW" => Some(Self::VMFSRAW),
-// FIXME
-            _ => panic!("Unknown extent descriptor KIND: {}", value),
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseKindError;
+
+impl FromStr for Kind {
+    type Err = ParseKindError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "SPARSE" => Ok(Self::SPARSE),
+            "FLAT" => Ok(Self::FLAT),
+            "ZERO" => Ok(Self::ZERO),
+            "VMFS" => Ok(Self::VMFS),
+            "VMFSSPARSE" => Ok(Self::VMFSSPARSE),
+            "VMFSRDM" => Ok(Self::VMFSRDM),
+            "VMFSRAW" => Ok(Self::VMFSRAW),
+            e => Err(ParseKindError)
         }
     }
 }
@@ -105,8 +110,8 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
                 let sectors = captures[2].parse::<u64>()
                     .map_err(|_| DescriptorError::U64ParseError(captures[2].into()))?;
 
-                let kind = Kind::from_str(&captures[3]).ok_or_else(||
-                    DescriptorError::KindParseError(captures[3].into()))?;
+                let kind = captures[3].parse::<Kind>()
+                    .map_err(|_| DescriptorError::KindParseError(captures[3].into()))?;
 
                 let filename = captures[4].to_string();
 
