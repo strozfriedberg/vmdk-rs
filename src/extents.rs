@@ -40,14 +40,6 @@ impl Kind {
     }
 }
 
-#[derive(Debug)]
-struct ED {
-    sectors: u64,
-    kind: Kind,
-    filename: String,
-    offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
-}
-
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
 RW 2162688 FLAT "CentOS 3-f002.vmdk" 0
@@ -89,6 +81,14 @@ impl fmt::Debug for ExtentDesc {
             }
         )
     }
+}
+
+#[derive(Debug)]
+struct ED {
+    sectors: u64,
+    kind: Kind,
+    filename: String,
+    offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
 }
 
 fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
@@ -152,7 +152,7 @@ fn read_grain_table(
         }
     }
 
-    let mut grain_table_all: HashMap<u64, u64> = HashMap::new();
+    let mut grain_table_all = HashMap::new();
 
     // get and read metadata-0
     h.io.seek(h.grain_dir as usize * 512)
