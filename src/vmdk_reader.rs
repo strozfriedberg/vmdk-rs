@@ -124,7 +124,7 @@ impl VmdkReader {
         loop {
             let (descriptor, is_bin) = read_descriptor(&current_fn)?;
             let extents0 = read_extents(
-                current_fn.as_path(),
+                &current_fn,
                 &descriptor,
                 is_bin
             )?;
