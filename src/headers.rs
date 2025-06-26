@@ -41,7 +41,7 @@ fn try_vmware_cowd_header(
 
 fn try_vmware_vmdk_header(
     io: BytesReader
-) -> Result<VmdkSparseFileHeader, DeserializationError>
+) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
      let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
         .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
@@ -67,6 +67,8 @@ fn try_vmware_vmdk_header(
         *h.start_primary_grain() as u64
     };
 
+    let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
+
     let hdr = VmdkSparseFileHeader {
         io,
         size_max: *h.size_max() as u64,
@@ -75,7 +77,7 @@ fn try_vmware_vmdk_header(
         num_grain_table_entries: *h.num_grain_table_entries() as u32,
         zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
         has_compressed_grain: *h.flags().has_compressed_grain(),
-        descriptor: String::from_utf8_lossy(h.descriptor().unwrap().deref()).into()
+        descriptor
     };
 
     Ok(hdr)
