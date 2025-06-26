@@ -1,4 +1,5 @@
 mod errors;
+mod extents;
 mod generated;
 mod header;
 pub mod vmdk_reader;
