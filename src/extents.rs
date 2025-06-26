@@ -71,14 +71,10 @@ impl fmt::Debug for ExtentDesc {
             self.start_sector,
             self.kind,
             self.filename,
-            if self.grain_table.is_some() {
-                format!(
-                    "grain_table size {}",
-                    self.grain_table.as_ref().unwrap().len()
-                )
-            } else {
-                "flat".to_string()
-            }
+            self.grain_table.as_ref().map_or(
+                "flat".into(),
+                |gt| format!("grain_table size {}", gt.len())
+            )
         )
     }
 }
