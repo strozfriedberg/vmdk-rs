@@ -59,7 +59,7 @@ pub struct ExtentDesc {
     // only if Kind == FLAT
     pub offset: u64,
     pub has_compressed_grain: bool,
-    pub zero_grain_table_entry: bool
+    pub zeroed_grain_table_entry: bool
 }
 
 impl fmt::Debug for ExtentDesc {
@@ -233,12 +233,12 @@ pub fn read_extents_impl<T: AsRef<Path>>(
         }
 
         let mut has_compressed_grain = false;
-        let mut zero_grain_table_entry = false;
+        let mut zeroed_grain_table_entry = false;
         let grain_table = match i.kind {
             Kind::SPARSE | Kind::VMFSSPARSE => {
                 let header = open_header(&ed_fn)?;
                 has_compressed_grain = header.has_compressed_grain;
-                zero_grain_table_entry = header.zeroed_grain_table_entry;
+                zeroed_grain_table_entry = header.zeroed_grain_table_entry;
                 grain_size = header.size_grain;
                 Some(
                     read_grain_table(
@@ -263,7 +263,7 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             grain_size,
             offset: i.offset,
             has_compressed_grain,
-            zero_grain_table_entry,
+            zeroed_grain_table_entry,
         };
         if ed.kind != Kind::SPARSE && ed.kind != Kind::VMFSSPARSE {
             // skip this check (file on disk could be bigger)

@@ -212,7 +212,7 @@ impl VmdkReader {
                         }
                         Some(sector_num) => {
                             // handle zero GTE
-                            if extent_desc.zero_grain_table_entry && *sector_num == 1 {
+                            if extent_desc.zeroed_grain_table_entry && *sector_num == 1 {
                                 remaining_buf[..remaining_grain_size].fill(0);
                             }
                             else {
