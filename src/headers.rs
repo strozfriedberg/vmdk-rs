@@ -1,4 +1,4 @@
-use kaitai::{BytesReader, KError, KStream, KStruct};
+use kaitai::{BytesReader, KStream, KStruct};
 use std::{
     path::Path,
     ops::Deref
