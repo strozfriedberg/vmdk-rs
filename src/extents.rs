@@ -210,14 +210,12 @@ fn read_grain_table(
     Ok(grain_table_all)
 }
 
-pub fn read_extents<T: AsRef<Path>>(
+pub fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
     is_bin: bool
 ) -> Result<Vec<ExtentDesc>, OpenError> {
-    let ed = extract_ed_values(descriptor)
-        .map_err(OpenError::from)
-        .map_err(|e| e.with_path(&image_path))?;
+    let ed = extract_ed_values(descriptor)?;
 
     let mut extents = vec![];
     let mut grain_size = 0;
@@ -257,9 +255,7 @@ pub fn read_extents<T: AsRef<Path>>(
             _ => None
         };
 
-        let file = File::open(&ed_fn)
-            .map_err(OpenError::from)
-            .map_err(|e| e.with_path(&image_path))?;
+        let file = File::open(&ed_fn)?;
 
         let ed = ExtentDesc {
             file: RefCell::new(file),
@@ -285,4 +281,13 @@ pub fn read_extents<T: AsRef<Path>>(
     }
 
     Ok(extents)
+}
+
+pub fn read_extents<T: AsRef<Path>>(
+    image_path: T,
+    descriptor: &str,
+    is_bin: bool
+) -> Result<Vec<ExtentDesc>, OpenError> {
+    read_extents_impl(&image_path, descriptor, is_bin)
+        .map_err(|e| e.with_path(&image_path))
 }
