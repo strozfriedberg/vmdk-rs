@@ -154,7 +154,12 @@ impl VmdkReader {
         })
     }
 
-    pub fn read_at_offset(&self, mut offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+    pub fn read_at_offset(
+        &self,
+        mut offset: u64,
+        buf: &mut [u8]
+    ) -> std::io::Result<usize>
+    {
         let mut bytes_read = 0;
         let mut grain_size = 0;
         let mut eof = false;
@@ -171,8 +176,11 @@ impl VmdkReader {
                     }
                 };
 
-                let sparse =
-                    extent_desc.kind == Kind::SPARSE || extent_desc.kind == Kind::VMFSSPARSE;
+                let sparse = match extent_desc.kind {
+                    Kind::SPARSE | Kind::VMFSSPARSE => true,
+                    _ => false
+                };
+
                 if sparse {
                     grain_size = extent_desc.grain_size * SECTOR_SIZE;
                 }
