@@ -15,7 +15,7 @@ extern crate kaitai;
 use self::kaitai::KStream;
 
 use crate::errors::{DescriptorError, IoError, OpenError, OpenErrorKind};
-use crate::headers::{VmdkSparseFileHeader, open_header};
+use crate::header::{VmdkSparseFileHeader, open_header};
 
 const SECTOR_SIZE: u64 = 512;
 

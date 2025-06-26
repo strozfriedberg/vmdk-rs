@@ -1,6 +1,6 @@
 mod errors;
 mod generated;
-mod headers;
+mod header;
 pub mod vmdk_reader;
 
 #[cfg(test)]
