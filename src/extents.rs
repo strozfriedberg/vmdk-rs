@@ -124,12 +124,7 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
             None => None
         };
 
-        ed.push(ED {
-            sectors,
-            kind,
-            filename,
-            offset
-        });
+        ed.push(ED { sectors, kind, filename, offset });
     }
 
     Ok(ed)
