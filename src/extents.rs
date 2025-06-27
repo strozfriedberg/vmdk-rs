@@ -89,7 +89,7 @@ struct ED {
     sectors: u64,
     kind: Kind,
     filename: String,
-    offset: u64, // value is specified only for flat extents and corresponds to the offset in the file
+    offset: Option<u64> // value is specified only for flat extents and corresponds to the offset in the file
 }
 
 fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
@@ -116,9 +116,9 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
                 let filename = captures[4].to_string();
 
                 let offset = match captures.get(5) {
-                    Some(v) => v.as_str().parse::<u64>()
-                        .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?,
-                    None => 0,
+                    Some(v) => Some(v.as_str().parse::<u64>()
+                        .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?),
+                    None => None
                 };
 
                 ed.push(ED {
@@ -266,7 +266,7 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             kind: i.kind,
             grain_table,
             grain_size,
-            offset: i.offset,
+            offset: i.offset.unwrap_or(0),
             has_compressed_grain,
             zeroed_grain_table_entry,
         };
