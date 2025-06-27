@@ -266,10 +266,12 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             has_compressed_grain,
             zeroed_grain_table_entry,
         };
+
         if ed.kind != Kind::SPARSE && ed.kind != Kind::VMFSSPARSE {
             // skip this check (file on disk could be bigger)
             debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
         }
+
         extents.push(ed);
     }
 
