@@ -88,11 +88,11 @@ fn read_and_decompress_grain(
     let mut file = extent_desc.file.borrow_mut();
 
     let cgh = CompressedGrainHeader {
-        _lba: file.read_u64::<LittleEndian>().unwrap(),
-        data_size: file.read_u32::<LittleEndian>().unwrap(),
+        _lba: file.read_u64::<LittleEndian>()?,
+        data_size: file.read_u32::<LittleEndian>()?,
     };
 
-    let header: u16 = file.read_u16::<BigEndian>().unwrap();
+    let header: u16 = file.read_u16::<BigEndian>()?;
 
     // sanity check against expected zlib stream header values...
     if header % 31 != 0 || header & 0x0F00 != 8 << 8 || header & 0x0020 != 0 {
