@@ -256,6 +256,7 @@ impl VmdkReader {
                         .borrow_mut()
                         .read_exact(&mut remaining_buf[..remaining_grain_size])?;
                 }
+
                 bytes_read += remaining_grain_size;
                 offset += remaining_grain_size as u64;
                 // look for next piece of data from the first extent descriptor
