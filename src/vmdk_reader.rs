@@ -242,7 +242,7 @@ impl VmdkReader {
                     // FLAT, VMFS
 
                     // handle extent offset only if Kind::FLAT
-                    if extent_desc.kind == Kind::FLAT && extent_desc.offset > 0 {
+                    if extent_desc.kind == Kind::FLAT {
                         local_offset += extent_desc.offset;
                     }
 
