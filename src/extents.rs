@@ -100,35 +100,36 @@ fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
 
     let mut ed = vec![];
 
-    for line in descriptor.lines() {
-        if line.starts_with("RW") ||
-           line.starts_with("RDONLY") ||
-           line.starts_with("NOACCESS")
-        {
-            if let Some(captures) = PAT.captures(line) {
-                // ignore access mode (captures[1])
-                let sectors = captures[2].parse::<u64>()
-                    .map_err(|_| DescriptorError::U64ParseError(captures[2].into()))?;
+    for captures in descriptor
+        .lines()
+        .filter(|line|
+            line.starts_with("RW") ||
+            line.starts_with("RDONLY") ||
+            line.starts_with("NOACCESS")
+        )
+        .filter_map(|line| PAT.captures(line))
+    {
+        // ignore access mode (captures[1])
+        let sectors = captures[2].parse::<u64>()
+            .map_err(|_| DescriptorError::U64ParseError(captures[2].into()))?;
 
-                let kind = captures[3].parse::<Kind>()
-                    .map_err(|_| DescriptorError::KindParseError(captures[3].into()))?;
+        let kind = captures[3].parse::<Kind>()
+            .map_err(|_| DescriptorError::KindParseError(captures[3].into()))?;
 
-                let filename = captures[4].to_string();
+        let filename = captures[4].to_string();
 
-                let offset = match captures.get(5) {
-                    Some(v) => Some(v.as_str().parse::<u64>()
-                        .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?),
-                    None => None
-                };
+        let offset = match captures.get(5) {
+            Some(v) => Some(v.as_str().parse::<u64>()
+                .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?),
+            None => None
+        };
 
-                ed.push(ED {
-                    sectors,
-                    kind,
-                    filename,
-                    offset,
-                });
-            }
-        }
+        ed.push(ED {
+            sectors,
+            kind,
+            filename,
+            offset
+        });
     }
 
     Ok(ed)
