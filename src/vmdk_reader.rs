@@ -246,15 +246,10 @@ impl VmdkReader {
                         local_offset += extent_desc.offset;
                     }
 
-                    extent_desc
-                        .file
-                        .borrow_mut()
-                        .seek(SeekFrom::Start(local_offset))?;
+                    let mut f = extent_desc.file.borrow_mut();
 
-                    extent_desc
-                        .file
-                        .borrow_mut()
-                        .read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                    f.seek(SeekFrom::Start(local_offset))?;
+                    f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
                 }
 
                 bytes_read += remaining_grain_size;
