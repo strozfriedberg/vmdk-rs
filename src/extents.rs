@@ -62,7 +62,7 @@ pub struct ExtentDesc {
     pub grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
     pub grain_size: u64,
     // only if Kind == FLAT
-    pub offset: u64,
+    pub offset: Option<u64>,
     pub has_compressed_grain: bool,
     pub zeroed_grain_table_entry: bool
 }
@@ -262,7 +262,7 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             kind: i.kind,
             grain_table,
             grain_size,
-            offset: i.offset.unwrap_or(0),
+            offset: i.offset,
             has_compressed_grain,
             zeroed_grain_table_entry,
         };

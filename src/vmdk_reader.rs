@@ -243,7 +243,9 @@ impl VmdkReader {
 
                     // handle extent offset only if Kind::FLAT
                     if extent_desc.kind == Kind::FLAT {
-                        local_offset += extent_desc.offset;
+                        if let Some(ed_offset) = extent_desc.offset {
+                            local_offset += ed_offset;
+                        }
                     }
 
                     let mut f = extent_desc.file.borrow_mut();
