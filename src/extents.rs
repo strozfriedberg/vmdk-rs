@@ -89,7 +89,8 @@ struct ED {
     sectors: u64,
     kind: Kind,
     filename: String,
-    offset: Option<u64> // value is specified only for flat extents and corresponds to the offset in the file
+    // specified for flat extents only; offset of extent in the file
+    offset: Option<u64>
 }
 
 fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
