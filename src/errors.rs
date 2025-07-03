@@ -16,7 +16,9 @@ pub enum DescriptorError {
     #[error("failed to parse '{0}' as a u64")]
     U64ParseError(String),
     #[error("failed to parse '{0}' as Kind enum")]
-    KindParseError(String)
+    KindParseError(String),
+    #[error("")]
+    ParseExtentDescriptionError
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -1,6 +1,4 @@
 use kaitai::KStream;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -14,7 +12,32 @@ use crate::errors::{DescriptorError, IoError, OpenError};
 use crate::header::{VmdkSparseFileHeader, open_header};
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AccessMode {
+    NOACCESS,
+    RDONLY,
+    RW
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("")]
+pub struct ParseAccessModeError;
+
+impl FromStr for AccessMode {
+    type Err = ParseAccessModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NOACCESS" => Ok(Self::NOACCESS),
+            "RDONLY" => Ok(Self::RDONLY),
+            "RW" => Ok(Self::RW),
+            _ => Err(ParseAccessModeError)
+        }
+    }
+}
+
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Kind {
     SPARSE,
     FLAT,
@@ -25,7 +48,8 @@ pub enum Kind {
     VMFSRAW,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("")]
 pub struct ParseKindError;
 
 impl FromStr for Kind {
@@ -45,13 +69,104 @@ impl FromStr for Kind {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ExtentDescription {
+    access_mode: AccessMode,
+    sectors: u64,
+    kind: Kind,
+    filename: String,
+    // specified for flat extents only; offset of extent in the file
+    offset: Option<u64>
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("")]
+pub struct ParseExtentDescriptionError;
+
+impl FromStr for ExtentDescription {
+    type Err = ParseExtentDescriptionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: What happens if the filename has a double quote in it?
+        // TODO: What happens if the filename has a space in it?
+
+        let mut splits = s.split(' ');
+
+        let access_mode = splits.next()
+            .ok_or(ParseExtentDescriptionError)?
+            .parse::<AccessMode>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        let sectors = splits.next()
+            .ok_or(ParseExtentDescriptionError)?
+            .parse::<u64>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        let kind = splits.next()
+            .ok_or(ParseExtentDescriptionError)?
+            .parse::<Kind>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        let filename = splits.next()
+            .ok_or(ParseExtentDescriptionError)?
+            .strip_prefix('"')
+            .ok_or(ParseExtentDescriptionError)?
+            .strip_suffix('"')
+            .ok_or(ParseExtentDescriptionError)?
+            .into();
+
+        let offset = match splits.next() {
+            None => None,
+            Some(o) => Some(
+                o.parse::<u64>()
+                    .or(Err(ParseExtentDescriptionError))?
+            )
+        };
+
+        match splits.next() {
+            Some(_) => Err(ParseExtentDescriptionError),
+            None => Ok(
+                ExtentDescription {
+                    access_mode,
+                    sectors,
+                    kind,
+                    filename,
+                    offset
+                }
+            )
+        }
+    }
+}
+
+fn extract_extent_descriptions(
+    descriptor: &str
+) -> Result<Vec<ExtentDescription>, ParseExtentDescriptionError>
+{
+    let mut eds = vec![];
+
+    for line in descriptor.lines() {
+        match line.trim_start().split_once(' ') {
+            Some((a, _)) if a.parse::<AccessMode>().is_ok() => {
+                match line.parse::<ExtentDescription>() {
+                    Ok(ed) => eds.push(ed),
+                    Err(e) => return Err(e)
+                }
+            },
+            _ => continue,
+        }
+    }
+
+    Ok(eds)
+}
+
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
 RW 2162688 FLAT "CentOS 3-f002.vmdk" 0
 
 sector_start = 0, sectors = 8323072
 sector_start = 8323072, sectors = 2162688
- */
+*/
+
 pub struct ExtentDesc {
     pub file: RefCell<File>,
     pub filename: String,
@@ -82,53 +197,6 @@ impl fmt::Debug for ExtentDesc {
             )
         )
     }
-}
-
-#[derive(Debug)]
-struct ED {
-    sectors: u64,
-    kind: Kind,
-    filename: String,
-    // specified for flat extents only; offset of extent in the file
-    offset: Option<u64>
-}
-
-fn extract_ed_values(descriptor: &str) -> Result<Vec<ED>, DescriptorError> {
-    static PAT: Lazy<Regex> = Lazy::new(||
-        Regex::new(r#"^(\w+)\s+(\d+)\s+(\w+)\s+"([^"]+)"(?:\s+(\d+)(?:\s+.+)?)?$"#)
-            .expect("bad regex")
-    );
-
-    let mut ed = vec![];
-
-    for captures in descriptor
-        .lines()
-        .filter(|line|
-            line.starts_with("RW") ||
-            line.starts_with("RDONLY") ||
-            line.starts_with("NOACCESS")
-        )
-        .filter_map(|line| PAT.captures(line))
-    {
-        // ignore access mode (captures[1])
-        let sectors = captures[2].parse::<u64>()
-            .map_err(|_| DescriptorError::U64ParseError(captures[2].into()))?;
-
-        let kind = captures[3].parse::<Kind>()
-            .map_err(|_| DescriptorError::KindParseError(captures[3].into()))?;
-
-        let filename = captures[4].to_string();
-
-        let offset = match captures.get(5) {
-            Some(v) => Some(v.as_str().parse::<u64>()
-                .map_err(|_| DescriptorError::U64ParseError(v.as_str().into()))?),
-            None => None
-        };
-
-        ed.push(ED { sectors, kind, filename, offset });
-    }
-
-    Ok(ed)
 }
 
 fn read_grain_table(
@@ -213,13 +281,14 @@ pub fn read_extents_impl<T: AsRef<Path>>(
     descriptor: &str,
     is_bin: bool
 ) -> Result<Vec<ExtentDesc>, OpenError> {
-    let ed = extract_ed_values(descriptor)?;
+    let eds = extract_extent_descriptions(descriptor)
+        .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
     let mut extents = vec![];
     let mut grain_size = 0;
     let mut grain_table_start_index = 0;
 
-    for i in &ed {
+    for i in &eds {
         if i.kind != Kind::SPARSE
             && i.kind != Kind::FLAT
             && i.kind != Kind::VMFS
@@ -229,7 +298,7 @@ pub fn read_extents_impl<T: AsRef<Path>>(
         }
 
         let mut ed_fn = image_path.as_ref().with_file_name(&i.filename);
-        if is_bin && ed.len() == 1 && fs::metadata(&ed_fn).is_err() {
+        if is_bin && eds.len() == 1 && fs::metadata(&ed_fn).is_err() {
             // if 1st filename is wrong and we are bin - try to use current file
             ed_fn = image_path.as_ref().to_path_buf();
         }
@@ -290,4 +359,63 @@ pub fn read_extents<T: AsRef<Path>>(
 ) -> Result<Vec<ExtentDesc>, OpenError> {
     read_extents_impl(&image_path, descriptor, is_bin)
         .map_err(|e| e.with_path(&image_path))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn read_extent_description_sparse() {
+        let ed = r#"RW 4192256 SPARSE "test-f001.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescription>().unwrap(),
+            ExtentDescription {
+                access_mode: AccessMode::RW,
+                sectors: 4192256,
+                kind: Kind::SPARSE,
+                filename: "test-f001.vmdk".into(),
+                offset: None
+            }
+        );
+
+
+    }
+
+    #[test]
+    fn read_extent_description_flat() {
+        let ed = r#"RW 1048576 FLAT "test-f001.vmdk" 0"#;
+        assert_eq!(
+            ed.parse::<ExtentDescription>().unwrap(),
+            ExtentDescription {
+                access_mode: AccessMode::RW,
+                sectors: 1048576,
+                kind: Kind::FLAT,
+                filename: "test-f001.vmdk".into(),
+                offset: Some(0)
+            }
+        );
+    }
+
+/*
+    #[test]
+    fn read_extent_description_zero() {
+        let ed = r#"RW 12345 ZERO"#;
+        assert_eq!(
+            ed.parse::<ExtentDescription>().unwrap(),
+            ExtentDescription {
+                sectors: 12345,
+                kind: Kind::ZERO,
+                filename: "test-f001.vmdk",
+                offset: Some(0)
+            }
+        );
+    }
+
+    ZERO,
+    VMFS,
+    VMFSSPARSE,
+    VMFSRDM,
+    VMFSRAW,
+*/
 }
