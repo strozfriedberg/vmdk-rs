@@ -193,92 +193,55 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
     type Error = ParseExtentDescriptionError;
 
     fn try_from(edl: ExtentDescriptionLine) -> Result<Self, Self::Error> {
-        match edl {
-            ExtentDescriptionLine {
-                kind: Kind::ZERO,
-                filename: None,
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::ZERO
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::FLAT,
-                filename: Some(filename),
-                offset: Some(offset),
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::FLAT {
-                    filename,
-                    offset
-                }
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::SPARSE,
-                filename: Some(filename),
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::SPARSE {
-                    filename
-                }
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::VMFS,
-                filename: Some(filename),
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::VMFS {
-                    filename
-                }
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::VMFSSPARSE,
-                filename: Some(filename),
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::VMFSSPARSE {
-                    filename
-                }
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::VMFSRDM,
-                filename: Some(filename),
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::VMFSRDM {
-                    filename
-                }
-            }),
-            ExtentDescriptionLine {
-                kind: Kind::VMFSRAW,
-                filename: Some(filename),
-                offset: None,
-                ..
-            } => Ok(ExtentDescription {
-                access_mode: edl.access_mode,
-                sectors: edl.sectors,
-                kind: ExtentDescriptionInner::VMFSRAW {
-                    filename
-                }
-            }),
-            _ => Err(ParseExtentDescriptionError)
-        }
+        Ok(ExtentDescription {
+            access_mode: edl.access_mode,
+            sectors: edl.sectors,
+            kind: match edl {
+                ExtentDescriptionLine {
+                    kind: Kind::ZERO,
+                    filename: None,
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::ZERO,
+                ExtentDescriptionLine {
+                    kind: Kind::FLAT,
+                    filename: Some(filename),
+                    offset: Some(offset),
+                    ..
+                } => ExtentDescriptionInner::FLAT { filename, offset },
+                ExtentDescriptionLine {
+                    kind: Kind::SPARSE,
+                    filename: Some(filename),
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::SPARSE { filename },
+                ExtentDescriptionLine {
+                    kind: Kind::VMFS,
+                    filename: Some(filename),
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::VMFS { filename },
+                ExtentDescriptionLine {
+                    kind: Kind::VMFSSPARSE,
+                    filename: Some(filename),
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::VMFSSPARSE { filename },
+                ExtentDescriptionLine {
+                    kind: Kind::VMFSRDM,
+                    filename: Some(filename),
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::VMFSRDM { filename },
+                ExtentDescriptionLine {
+                    kind: Kind::VMFSRAW,
+                    filename: Some(filename),
+                    offset: None,
+                    ..
+                } => ExtentDescriptionInner::VMFSRAW { filename },
+                _ => return Err(ParseExtentDescriptionError)
+            }
+        })
     }
 }
 
