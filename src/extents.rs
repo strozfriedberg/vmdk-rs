@@ -69,6 +69,80 @@ impl FromStr for Kind {
     }
 }
 
+
+#[derive(Debug, PartialEq, Eq)]
+struct ExtentDescriptionLine {
+    access_mode: AccessMode,
+    sectors: u64,
+    kind: Kind,
+    filename: Option<String>,
+    offset: Option<u64>
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[error("")]
+pub struct ParseExtentDescriptionError;
+
+impl FromStr for ExtentDescriptionLine {
+    type Err = ParseExtentDescriptionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        // read the access mode
+        let (tok, s) = s.trim_start().split_once(' ')
+            .ok_or(ParseExtentDescriptionError)?;
+        let access_mode = tok.parse::<AccessMode>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        // read the sector count
+        let (tok, s) = s.trim_start().split_once(' ')
+            .ok_or(ParseExtentDescriptionError)?;
+        let sectors = tok.parse::<u64>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        // read the extent kind
+        let (tok, s) = s.trim_start().split_once(' ')
+            .ok_or(ParseExtentDescriptionError)?;
+        let kind = tok.parse::<Kind>()
+            .or(Err(ParseExtentDescriptionError))?;
+
+        // read the optional filename and offset
+        let s = s.trim_start();
+        let (filename, offset) = if s.is_empty() {
+            (None, None)
+        }
+        else {
+            // read the filename
+            let (tok, s) = s.strip_prefix('"')
+                .ok_or(ParseExtentDescriptionError)?
+                .rsplit_once('"')
+                .ok_or(ParseExtentDescriptionError)?;
+            let filename = Some(tok.to_string());
+
+            // read the offset
+            let s = s.trim_start();
+            let offset = match s.is_empty() {
+                true => None,
+                false => Some(s.parse::<u64>()
+                    .or(Err(ParseExtentDescriptionError))?)
+            };
+
+            (filename, offset)
+        };
+
+        Ok(
+            ExtentDescriptionLine {
+                access_mode,
+                sectors,
+                kind,
+                filename,
+                offset
+            }
+        )
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ExtentDescription {
     access_mode: AccessMode,
@@ -79,61 +153,43 @@ struct ExtentDescription {
     offset: Option<u64>
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("")]
-pub struct ParseExtentDescriptionError;
+impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
+    type Error = ParseExtentDescriptionError;
 
-impl FromStr for ExtentDescription {
-    type Err = ParseExtentDescriptionError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: What happens if the filename has a double quote in it?
-        // TODO: What happens if the filename has a space in it?
-
-        let mut splits = s.split(' ');
-
-        let access_mode = splits.next()
-            .ok_or(ParseExtentDescriptionError)?
-            .parse::<AccessMode>()
-            .or(Err(ParseExtentDescriptionError))?;
-
-        let sectors = splits.next()
-            .ok_or(ParseExtentDescriptionError)?
-            .parse::<u64>()
-            .or(Err(ParseExtentDescriptionError))?;
-
-        let kind = splits.next()
-            .ok_or(ParseExtentDescriptionError)?
-            .parse::<Kind>()
-            .or(Err(ParseExtentDescriptionError))?;
-
-        let filename = splits.next()
-            .ok_or(ParseExtentDescriptionError)?
-            .strip_prefix('"')
-            .ok_or(ParseExtentDescriptionError)?
-            .strip_suffix('"')
-            .ok_or(ParseExtentDescriptionError)?
-            .into();
-
-        let offset = match splits.next() {
-            None => None,
-            Some(o) => Some(
-                o.parse::<u64>()
-                    .or(Err(ParseExtentDescriptionError))?
-            )
-        };
-
-        match splits.next() {
-            Some(_) => Err(ParseExtentDescriptionError),
-            None => Ok(
+    fn try_from(edl: ExtentDescriptionLine) -> Result<Self, Self::Error> {
+        match edl {
+            ExtentDescriptionLine {
+                kind: Kind::ZERO,
+                filename: None,
+                offset: None,
+                ..
+            } |
+            ExtentDescriptionLine {
+                kind: Kind::FLAT,
+                filename: Some(_),
+                offset: Some(_),
+                ..
+            } |
+            ExtentDescriptionLine {
+                kind:
+                    Kind::SPARSE |
+                    Kind::VMFS |
+                    Kind::VMFSSPARSE |
+                    Kind::VMFSRDM |
+                    Kind::VMFSRAW,
+                filename: Some(_),
+                offset: None,
+                ..
+            } => Ok(
                 ExtentDescription {
-                    access_mode,
-                    sectors,
-                    kind,
-                    filename,
-                    offset
+                    access_mode: edl.access_mode,
+                    sectors: edl.sectors,
+                    kind: edl.kind,
+                    filename: edl.filename.unwrap_or("".into()),
+                    offset: edl.offset
                 }
-            )
+            ),
+            _ => Err(ParseExtentDescriptionError)
         }
     }
 }
@@ -147,10 +203,7 @@ fn extract_extent_descriptions(
     for line in descriptor.lines() {
         match line.trim_start().split_once(' ') {
             Some((a, _)) if a.parse::<AccessMode>().is_ok() => {
-                match line.parse::<ExtentDescription>() {
-                    Ok(ed) => eds.push(ed),
-                    Err(e) => return Err(e)
-                }
+                eds.push(line.parse::<ExtentDescriptionLine>()?.try_into()?);
             },
             _ => continue,
         }
@@ -366,15 +419,15 @@ mod test {
     use super::*;
 
     #[test]
-    fn read_extent_description_sparse() {
+    fn read_extent_description_line_sparse() {
         let ed = r#"RW 4192256 SPARSE "test-f001.vmdk""#;
         assert_eq!(
-            ed.parse::<ExtentDescription>().unwrap(),
-            ExtentDescription {
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
                 access_mode: AccessMode::RW,
                 sectors: 4192256,
                 kind: Kind::SPARSE,
-                filename: "test-f001.vmdk".into(),
+                filename: Some("test-f001.vmdk".into()),
                 offset: None
             }
         );
@@ -383,15 +436,15 @@ mod test {
     }
 
     #[test]
-    fn read_extent_description_flat() {
+    fn read_extent_description_line_flat() {
         let ed = r#"RW 1048576 FLAT "test-f001.vmdk" 0"#;
         assert_eq!(
-            ed.parse::<ExtentDescription>().unwrap(),
-            ExtentDescription {
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
                 access_mode: AccessMode::RW,
                 sectors: 1048576,
                 kind: Kind::FLAT,
-                filename: "test-f001.vmdk".into(),
+                filename: Some("test-f001.vmdk".into()),
                 offset: Some(0)
             }
         );
@@ -399,11 +452,11 @@ mod test {
 
 /*
     #[test]
-    fn read_extent_description_zero() {
+    fn read_extent_description_line_zero() {
         let ed = r#"RW 12345 ZERO"#;
         assert_eq!(
-            ed.parse::<ExtentDescription>().unwrap(),
-            ExtentDescription {
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
                 sectors: 12345,
                 kind: Kind::ZERO,
                 filename: "test-f001.vmdk",
@@ -411,11 +464,20 @@ mod test {
             }
         );
     }
+*/
 
+/*
+TODO: extent description tests for:
     ZERO,
     VMFS,
     VMFSSPARSE,
     VMFSRDM,
     VMFSRAW,
+
+TODO: What happens if the filename has a double quote in it?
+TODO: What happens if the filename has a space in it?
+TODO: extent description test for filename containing a space
+TODO: extent description test for filename containing a double quote
+TODO: can extent description filenames be single-quote delimited?
 */
 }
