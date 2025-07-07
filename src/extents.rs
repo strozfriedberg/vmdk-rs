@@ -2,7 +2,6 @@ use kaitai::KStream;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fmt,
     fs::{self, File},
     path::Path,
     str::FromStr
