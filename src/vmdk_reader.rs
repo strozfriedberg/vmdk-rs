@@ -11,7 +11,7 @@ use std::{
 extern crate kaitai;
 
 use crate::errors::{OpenError, OpenErrorKind};
-use crate::extents::{ExtentDesc, Kind, read_extents};
+use crate::extents::{ExtentDesc, ExtentKind, read_extents};
 use crate::header::open_header;
 
 const SECTOR_SIZE: u64 = 512;
@@ -177,7 +177,7 @@ impl VmdkReader {
                 };
 
                 let sparse = match extent_desc.kind {
-                    Kind::SPARSE | Kind::VMFSSPARSE => true,
+                    ExtentKind::SPARSE | ExtentKind::VMFSSPARSE => true,
                     _ => false
                 };
 
@@ -241,8 +241,8 @@ impl VmdkReader {
                 else {
                     // FLAT, VMFS
 
-                    // handle extent offset only if Kind::FLAT
-                    if extent_desc.kind == Kind::FLAT {
+                    // handle extent offset only if ExtentKind::FLAT
+                    if extent_desc.kind == ExtentKind::FLAT {
                         if let Some(ed_offset) = extent_desc.offset {
                             local_offset += ed_offset;
                         }

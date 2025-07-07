@@ -20,6 +20,7 @@ pub enum AccessMode {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+// TODO
 #[error("")]
 pub struct ParseAccessModeError;
 
@@ -38,7 +39,7 @@ impl FromStr for AccessMode {
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Kind {
+pub enum ExtentKind {
     SPARSE,
     FLAT,
     ZERO,
@@ -49,11 +50,12 @@ pub enum Kind {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+// TODO
 #[error("")]
-pub struct ParseKindError;
+pub struct ParseExtentKindError;
 
-impl FromStr for Kind {
-    type Err = ParseKindError;
+impl FromStr for ExtentKind {
+    type Err = ParseExtentKindError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -64,22 +66,22 @@ impl FromStr for Kind {
             "VMFSSPARSE" => Ok(Self::VMFSSPARSE),
             "VMFSRDM" => Ok(Self::VMFSRDM),
             "VMFSRAW" => Ok(Self::VMFSRAW),
-            _ => Err(ParseKindError)
+            _ => Err(ParseExtentKindError)
         }
     }
 }
-
 
 #[derive(Debug, PartialEq, Eq)]
 struct ExtentDescriptionLine {
     access_mode: AccessMode,
     sectors: u64,
-    kind: Kind,
+    kind: ExtentKind,
     filename: Option<String>,
     offset: Option<u64>
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
+// TODO
 #[error("")]
 pub struct ParseExtentDescriptionError;
 
@@ -104,7 +106,7 @@ impl FromStr for ExtentDescriptionLine {
         // read the extent kind
         let (tok, s) = s.trim_start().split_once(' ')
             .ok_or(ParseExtentDescriptionError)?;
-        let kind = tok.parse::<Kind>()
+        let kind = tok.parse::<ExtentKind>()
             .or(Err(ParseExtentDescriptionError))?;
 
         // read the optional filename and offset
@@ -168,16 +170,16 @@ enum ExtentDescriptionInner {
     }
 }
 
-impl From<&ExtentDescriptionInner> for Kind {
+impl From<&ExtentDescriptionInner> for ExtentKind {
     fn from(edi: &ExtentDescriptionInner) -> Self {
         match edi {
-            ExtentDescriptionInner::SPARSE { .. } => Kind::SPARSE,
-            ExtentDescriptionInner::FLAT { .. } => Kind::FLAT,
-            ExtentDescriptionInner::ZERO => Kind::ZERO,
-            ExtentDescriptionInner::VMFS { .. } => Kind::VMFS,
-            ExtentDescriptionInner::VMFSSPARSE { .. } => Kind::VMFSSPARSE,
-            ExtentDescriptionInner::VMFSRDM { .. } => Kind::VMFSRDM,
-            ExtentDescriptionInner::VMFSRAW { .. } => Kind::VMFSRAW
+            ExtentDescriptionInner::SPARSE { .. } => ExtentKind::SPARSE,
+            ExtentDescriptionInner::FLAT { .. } => ExtentKind::FLAT,
+            ExtentDescriptionInner::ZERO => ExtentKind::ZERO,
+            ExtentDescriptionInner::VMFS { .. } => ExtentKind::VMFS,
+            ExtentDescriptionInner::VMFSSPARSE { .. } => ExtentKind::VMFSSPARSE,
+            ExtentDescriptionInner::VMFSRDM { .. } => ExtentKind::VMFSRDM,
+            ExtentDescriptionInner::VMFSRAW { .. } => ExtentKind::VMFSRAW
         }
     }
 }
@@ -198,43 +200,43 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
             sectors: edl.sectors,
             kind: match edl {
                 ExtentDescriptionLine {
-                    kind: Kind::ZERO,
+                    kind: ExtentKind::ZERO,
                     filename: None,
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::ZERO,
                 ExtentDescriptionLine {
-                    kind: Kind::FLAT,
+                    kind: ExtentKind::FLAT,
                     filename: Some(filename),
                     offset: Some(offset),
                     ..
                 } => ExtentDescriptionInner::FLAT { filename, offset },
                 ExtentDescriptionLine {
-                    kind: Kind::SPARSE,
+                    kind: ExtentKind::SPARSE,
                     filename: Some(filename),
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::SPARSE { filename },
                 ExtentDescriptionLine {
-                    kind: Kind::VMFS,
+                    kind: ExtentKind::VMFS,
                     filename: Some(filename),
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VMFS { filename },
                 ExtentDescriptionLine {
-                    kind: Kind::VMFSSPARSE,
+                    kind: ExtentKind::VMFSSPARSE,
                     filename: Some(filename),
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VMFSSPARSE { filename },
                 ExtentDescriptionLine {
-                    kind: Kind::VMFSRDM,
+                    kind: ExtentKind::VMFSRDM,
                     filename: Some(filename),
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VMFSRDM { filename },
                 ExtentDescriptionLine {
-                    kind: Kind::VMFSRAW,
+                    kind: ExtentKind::VMFSRAW,
                     filename: Some(filename),
                     offset: None,
                     ..
@@ -271,12 +273,18 @@ sector_start = 0, sectors = 8323072
 sector_start = 8323072, sectors = 2162688
 */
 
+// TODO: rename to Extent, split into variants
+
+pub struct Extent {
+
+}
+
 pub struct ExtentDesc {
     pub file: RefCell<File>,
     pub filename: String,
     pub start_sector: u64,
     pub sectors: u64,
-    pub kind: Kind,
+    pub kind: ExtentKind,
     // only if Kind == SPARSE
     pub grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
     pub grain_size: u64,
@@ -306,7 +314,7 @@ impl fmt::Debug for ExtentDesc {
 fn read_grain_table(
     grain_table_start_index: &mut u64,
     h: &VmdkSparseFileHeader,
-    kind: Kind,
+    kind: ExtentKind,
 ) -> Result<HashMap<u64, u64>, IoError> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
@@ -314,7 +322,7 @@ fn read_grain_table(
     let mut last_entry_special_size = false;
     let mut number_of_grain_directory_entries = h.num_grain_table_entries as u64;
 
-    if kind == Kind::SPARSE {
+    if kind == ExtentKind::SPARSE {
         number_of_grain_directory_entries = size_max / grain_table0_size;
         if size_max % grain_table0_size > 0 {
             last_entry_special_size = true;
@@ -337,7 +345,7 @@ fn read_grain_table(
 
     // get and read metadata-1
     for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
-        let grain_table1_elems = if kind == Kind::SPARSE {
+        let grain_table1_elems = if kind == ExtentKind::SPARSE {
             if last_entry_special_size && i == grain_dir_entries.len() - 1 {
                 let rest = size_max % grain_table0_size;
                 (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
@@ -447,7 +455,7 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             zeroed_grain_table_entry,
         };
 
-        if ed.kind != Kind::SPARSE && ed.kind != Kind::VMFSSPARSE {
+        if ed.kind != ExtentKind::SPARSE && ed.kind != ExtentKind::VMFSSPARSE {
             // skip this check (file on disk could be bigger)
             debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
         }
@@ -483,13 +491,11 @@ mod test {
             ExtentDescriptionLine {
                 access_mode: AccessMode::RW,
                 sectors: 4192256,
-                kind: Kind::SPARSE,
+                kind: ExtentKind::SPARSE,
                 filename: Some("test-f001.vmdk".into()),
                 offset: None
             }
         );
-
-
     }
 
     #[test]
@@ -500,7 +506,7 @@ mod test {
             ExtentDescriptionLine {
                 access_mode: AccessMode::RW,
                 sectors: 1048576,
-                kind: Kind::FLAT,
+                kind: ExtentKind::FLAT,
                 filename: Some("test-f001.vmdk".into()),
                 offset: Some(0)
             }
@@ -515,7 +521,7 @@ mod test {
             ed.parse::<ExtentDescriptionLine>().unwrap(),
             ExtentDescriptionLine {
                 sectors: 12345,
-                kind: Kind::ZERO,
+                kind: ExtentKind::ZERO,
                 filename: "test-f001.vmdk",
                 offset: Some(0)
             }
