@@ -177,7 +177,7 @@ impl VmdkReader {
                 };
 
                 let sparse = match extent_desc.kind {
-                    ExtentKind::SPARSE | ExtentKind::VMFSSPARSE => true,
+                    ExtentKind::Sparse | ExtentKind::VmfsSparse => true,
                     _ => false
                 };
 
@@ -241,8 +241,8 @@ impl VmdkReader {
                 else {
                     // FLAT, VMFS
 
-                    // handle extent offset only if ExtentKind::FLAT
-                    if extent_desc.kind == ExtentKind::FLAT {
+                    // handle extent offset only if ExtentKind::Flat
+                    if extent_desc.kind == ExtentKind::Flat {
                         if let Some(ed_offset) = extent_desc.offset {
                             local_offset += ed_offset;
                         }
