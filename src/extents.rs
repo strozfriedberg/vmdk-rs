@@ -394,8 +394,6 @@ pub fn read_extents_impl<T: AsRef<Path>>(
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
     let mut extents = vec![];
-    let mut grain_size = 0;
-    let mut grain_table_start_index = 0;
 
     for i in &eds {
         let filename = match &i.kind {
@@ -412,6 +410,8 @@ pub fn read_extents_impl<T: AsRef<Path>>(
             ed_fn = image_path.as_ref().to_path_buf();
         }
 
+        let mut grain_size = 0;
+        let mut grain_table_start_index = 0;
         let mut has_compressed_grain = false;
         let mut zeroed_grain_table_entry = false;
         let grain_table = match i.kind {
