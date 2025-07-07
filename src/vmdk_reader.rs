@@ -54,17 +54,17 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
 
 fn get_extent_from_offset<'a>(
     extents: &'a Vec<Extent>,
-    offset: u64,
-    local_offset: &mut u64,
-) -> Option<&'a Extent> {
+    offset: u64
+) -> Option<(&'a Extent, u64)> {
     let sector_num = offset / 512;
+    let mut local_offset = offset;
 
     for i in extents {
         if sector_num >= i.start_sector && sector_num < i.start_sector + i.sectors {
-            return Some(i);
+            return Some((i, local_offset));
         }
         else {
-            *local_offset -= i.sectors * 512;
+            local_offset -= i.sectors * 512;
         }
     }
 
@@ -166,10 +166,9 @@ impl VmdkReader {
 
         while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
-                let mut local_offset = offset;
-                let extent = match get_extent_from_offset(ex, offset, &mut local_offset)
-                {
-                    Some(e) => e,
+                let exo = get_extent_from_offset(ex, offset);
+                let (extent, local_offset) = match exo {
+                    Some(exo) => exo,
                     None => {
                         eof = true;
                         break;
@@ -243,12 +242,10 @@ impl VmdkReader {
 
                         // FLAT, VMFS
 
-                        // only ExtentKind::Flat has nonzero offset
-                        local_offset += storage.offset;
-
                         let mut f = storage.file.borrow_mut();
 
-                        f.seek(SeekFrom::Start(local_offset))?;
+                        // only ExtentKind::Flat has nonzero offset
+                        f.seek(SeekFrom::Start(local_offset + storage.offset))?;
                         f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
                     },
                     ExtentStorage::Zero => todo!("ZERO support")
