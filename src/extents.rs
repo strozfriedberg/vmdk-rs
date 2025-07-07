@@ -385,6 +385,76 @@ fn read_grain_table(
     Ok(grain_table_all)
 }
 
+pub fn read_extent<T: AsRef<Path>>(
+    ed: &ExtentDescription,
+    image_path: T,
+    is_bin_and_singular: bool
+) -> Result<ExtentDesc, OpenError>
+{
+    let filename = match &ed.kind {
+        ExtentDescriptionInner::Sparse { filename } |
+        ExtentDescriptionInner::Flat { filename, .. } |
+        ExtentDescriptionInner::Vmfs { filename } |
+        ExtentDescriptionInner::VmfsSparse { filename } => filename,
+        _ => todo!("TODO: {:?} support", ed.kind)
+    };
+
+    let mut ed_fn = image_path.as_ref().with_file_name(filename);
+    if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
+        // if 1st filename is wrong and we are bin - try to use current file
+        ed_fn = image_path.as_ref().to_path_buf();
+    }
+
+    let mut grain_size = 0;
+    let mut grain_table_start_index = 0;
+    let mut has_compressed_grain = false;
+    let mut zeroed_grain_table_entry = false;
+    let grain_table = match ed.kind {
+        ExtentDescriptionInner::Sparse { .. } |
+        ExtentDescriptionInner::VmfsSparse { .. } => {
+            let header = open_header(&ed_fn)?;
+            has_compressed_grain = header.has_compressed_grain;
+            zeroed_grain_table_entry = header.zeroed_grain_table_entry;
+            grain_size = header.size_grain;
+            Some(
+                read_grain_table(
+                    &mut grain_table_start_index,
+                    &header,
+                    (&ed.kind).into(),
+                )?
+            )
+        },
+        _ => None
+    };
+
+    let file = File::open(&ed_fn)?;
+
+    let offset = match ed.kind {
+        ExtentDescriptionInner::Flat { offset, .. } => Some(offset),
+        _ => None
+    };
+
+    let ex = ExtentDesc {
+        file: RefCell::new(file),
+        filename: ed_fn.to_string_lossy().to_string(),
+        start_sector: 0, // will be updated later (see below)
+        sectors: ed.sectors,
+        kind: (&ed.kind).into(),
+        grain_table,
+        grain_size,
+        offset,
+        has_compressed_grain,
+        zeroed_grain_table_entry,
+    };
+
+    if ex.kind != ExtentKind::Sparse && ex.kind != ExtentKind::VmfsSparse {
+        // skip this check (file on disk could be bigger)
+        debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ex.sectors * 512);
+    }
+
+    Ok(ex)
+}
+
 pub fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
@@ -395,69 +465,10 @@ pub fn read_extents_impl<T: AsRef<Path>>(
 
     let mut extents = vec![];
 
+    let is_bin_and_singular = is_bin && eds.len() == 1;
+
     for i in &eds {
-        let filename = match &i.kind {
-            ExtentDescriptionInner::Sparse { filename } |
-            ExtentDescriptionInner::Flat { filename, .. } |
-            ExtentDescriptionInner::Vmfs { filename } |
-            ExtentDescriptionInner::VmfsSparse { filename } => filename,
-            _ => todo!("TODO: {:?} support", i.kind)
-        };
-
-        let mut ed_fn = image_path.as_ref().with_file_name(filename);
-        if is_bin && eds.len() == 1 && fs::metadata(&ed_fn).is_err() {
-            // if 1st filename is wrong and we are bin - try to use current file
-            ed_fn = image_path.as_ref().to_path_buf();
-        }
-
-        let mut grain_size = 0;
-        let mut grain_table_start_index = 0;
-        let mut has_compressed_grain = false;
-        let mut zeroed_grain_table_entry = false;
-        let grain_table = match i.kind {
-            ExtentDescriptionInner::Sparse { .. } |
-            ExtentDescriptionInner::VmfsSparse { .. } => {
-                let header = open_header(&ed_fn)?;
-                has_compressed_grain = header.has_compressed_grain;
-                zeroed_grain_table_entry = header.zeroed_grain_table_entry;
-                grain_size = header.size_grain;
-                Some(
-                    read_grain_table(
-                        &mut grain_table_start_index,
-                        &header,
-                        (&i.kind).into(),
-                    )?
-                )
-            },
-            _ => None
-        };
-
-        let file = File::open(&ed_fn)?;
-
-        let offset = match i.kind {
-            ExtentDescriptionInner::Flat { offset, .. } => Some(offset),
-            _ => None
-        };
-
-        let ed = ExtentDesc {
-            file: RefCell::new(file),
-            filename: ed_fn.to_string_lossy().to_string(),
-            start_sector: 0, // will be updated later (see below)
-            sectors: i.sectors,
-            kind: (&i.kind).into(),
-            grain_table,
-            grain_size,
-            offset,
-            has_compressed_grain,
-            zeroed_grain_table_entry,
-        };
-
-        if ed.kind != ExtentKind::Sparse && ed.kind != ExtentKind::VmfsSparse {
-            // skip this check (file on disk could be bigger)
-            debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ed.sectors * 512);
-        }
-
-        extents.push(ed);
+        extents.push(read_extent(i, &image_path, is_bin_and_singular)?);
     }
 
     for i in 1..extents.len() {
