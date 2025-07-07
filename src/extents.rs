@@ -57,7 +57,7 @@ pub struct Extent {
 
 fn read_grain_table(
     h: &VmdkSparseFileHeader,
-    kind: ExtentKind,
+    kind: ExtentKind
 ) -> Result<(HashMap<u64, u64>, u64), IoError> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
