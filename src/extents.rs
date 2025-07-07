@@ -385,7 +385,7 @@ fn read_grain_table(
     Ok(grain_table_all)
 }
 
-pub fn read_extent<T: AsRef<Path>>(
+fn read_extent<T: AsRef<Path>>(
     ed: &ExtentDescription,
     image_path: T,
     is_bin_and_singular: bool
@@ -455,7 +455,7 @@ pub fn read_extent<T: AsRef<Path>>(
     Ok(ex)
 }
 
-pub fn read_extents_impl<T: AsRef<Path>>(
+fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
     is_bin: bool
@@ -463,9 +463,9 @@ pub fn read_extents_impl<T: AsRef<Path>>(
     let eds = extract_extent_descriptions(descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
-    let mut extents = vec![];
-
     let is_bin_and_singular = is_bin && eds.len() == 1;
+
+    let mut extents = vec![];
 
     for i in &eds {
         extents.push(read_extent(i, &image_path, is_bin_and_singular)?);
