@@ -1,4 +1,5 @@
 mod errors;
+mod extent_description;
 mod extents;
 mod generated;
 mod header;
