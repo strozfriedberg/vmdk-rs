@@ -11,12 +11,11 @@ use std::{
 use crate::errors::{DescriptorError, IoError, OpenError};
 use crate::header::{VmdkSparseFileHeader, open_header};
 
-#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AccessMode {
-    NOACCESS,
-    RDONLY,
-    RW
+    NoAccess,
+    RdOnly,
+    Rw
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -29,9 +28,9 @@ impl FromStr for AccessMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "NOACCESS" => Ok(Self::NOACCESS),
-            "RDONLY" => Ok(Self::RDONLY),
-            "RW" => Ok(Self::RW),
+            "NOACCESS" => Ok(Self::NoAccess),
+            "RDONLY" => Ok(Self::RdOnly),
+            "RW" => Ok(Self::Rw),
             _ => Err(ParseAccessModeError)
         }
     }
@@ -487,7 +486,7 @@ mod test {
         assert_eq!(
             ed.parse::<ExtentDescriptionLine>().unwrap(),
             ExtentDescriptionLine {
-                access_mode: AccessMode::RW,
+                access_mode: AccessMode::Rw,
                 sectors: 4192256,
                 kind: ExtentKind::Sparse,
                 filename: Some("test-f001.vmdk".into()),
@@ -502,7 +501,7 @@ mod test {
         assert_eq!(
             ed.parse::<ExtentDescriptionLine>().unwrap(),
             ExtentDescriptionLine {
-                access_mode: AccessMode::RW,
+                access_mode: AccessMode::Rw,
                 sectors: 1048576,
                 kind: ExtentKind::Flat,
                 filename: Some("test-f001.vmdk".into()),
