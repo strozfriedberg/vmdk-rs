@@ -58,10 +58,9 @@ pub struct Extent {
 }
 
 fn read_grain_table(
-    grain_table_start_index: &mut u64,
     h: &VmdkSparseFileHeader,
     kind: ExtentKind,
-) -> Result<HashMap<u64, u64>, IoError> {
+) -> Result<(HashMap<u64, u64>, u64), IoError> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
     let size_max = h.size_max * 512;
@@ -77,6 +76,7 @@ fn read_grain_table(
     }
 
     let mut grain_table_all = HashMap::new();
+    let mut grain_table_start_index = 0;
 
     // get and read metadata-0
     h.io.seek(h.grain_dir as usize * 512)
@@ -106,7 +106,7 @@ fn read_grain_table(
         };
 
         if *grain_table_offset == 0 {
-            *grain_table_start_index += grain_table1_elems as u64;
+            grain_table_start_index += grain_table1_elems as u64;
             continue;
         }
 
@@ -124,14 +124,14 @@ fn read_grain_table(
             if *grain == 0 {
                 continue;
             }
-            let old = grain_table_all.insert(*grain_table_start_index + i as u64, *grain);
+            let old = grain_table_all.insert(grain_table_start_index + i as u64, *grain);
             debug_assert!(old.is_none());
         }
 
-        *grain_table_start_index += grain_table.len() as u64;
+        grain_table_start_index += grain_table.len() as u64;
     }
 
-    Ok(grain_table_all)
+    Ok((grain_table_all, grain_table_start_index))
 }
 
 fn read_extent<T: AsRef<Path>>(
@@ -165,9 +165,7 @@ fn read_extent<T: AsRef<Path>>(
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;
 
-            let mut grain_table_start_index = 0;
-            let grain_table = read_grain_table(
-                &mut grain_table_start_index,
+            let (grain_table, grain_table_start_index) = read_grain_table(
                 &header,
                 (&ed.kind).into(),
             )?;
