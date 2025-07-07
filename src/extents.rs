@@ -272,40 +272,36 @@ sector_start = 8323072, sectors = 2162688
 
 // TODO: rename to Extent, split into variants
 
-pub struct Extent {
-
-}
-
-pub struct ExtentDesc {
+#[derive(Debug)]
+pub struct SparseStorage {
     pub file: RefCell<File>,
     pub filename: String,
-    pub start_sector: u64,
-    pub sectors: u64,
-    pub kind: ExtentKind,
-    // only if Kind == SPARSE
-    pub grain_table: Option<HashMap<u64 /*sector*/, u64 /*real sector in file*/>>, // size size_grain * 512
+    pub grain_table: HashMap<u64 /*sector*/, u64 /*real sector in file*/>,
+    // size size_grain * 512
     pub grain_size: u64,
-    // only if Kind == FLAT
-    pub offset: Option<u64>,
     pub has_compressed_grain: bool,
     pub zeroed_grain_table_entry: bool
 }
 
-impl fmt::Debug for ExtentDesc {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "\n\tExtentDesc {{ sectors: {}, start_sector: {}, kind: {:?}, filename: {}, {} }}\n",
-            self.sectors,
-            self.start_sector,
-            self.kind,
-            self.filename,
-            self.grain_table.as_ref().map_or(
-                "flat".into(),
-                |gt| format!("grain_table size {}", gt.len())
-            )
-        )
-    }
+#[derive(Debug)]
+pub struct FlatStorage {
+    pub file: RefCell<File>,
+    pub filename: String,
+    pub offset: u64
+}
+
+#[derive(Debug)]
+pub enum ExtentStorage {
+    Sparse(SparseStorage),
+    Flat(FlatStorage),
+    Zero
+}
+
+#[derive(Debug)]
+pub struct Extent {
+    pub start_sector: u64,
+    pub sectors: u64,
+    pub storage: ExtentStorage
 }
 
 fn read_grain_table(
@@ -389,7 +385,7 @@ fn read_extent<T: AsRef<Path>>(
     ed: &ExtentDescription,
     image_path: T,
     is_bin_and_singular: bool
-) -> Result<ExtentDesc, OpenError>
+) -> Result<ExtentStorage, OpenError>
 {
     let filename = match &ed.kind {
         ExtentDescriptionInner::Sparse { filename } |
@@ -405,61 +401,56 @@ fn read_extent<T: AsRef<Path>>(
         ed_fn = image_path.as_ref().to_path_buf();
     }
 
-    let mut grain_size = 0;
-    let mut grain_table_start_index = 0;
-    let mut has_compressed_grain = false;
-    let mut zeroed_grain_table_entry = false;
-    let grain_table = match ed.kind {
+    let file = RefCell::new(File::open(&ed_fn)?);
+    let filename = ed_fn.to_string_lossy().to_string();
+
+    Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
             let header = open_header(&ed_fn)?;
-            has_compressed_grain = header.has_compressed_grain;
-            zeroed_grain_table_entry = header.zeroed_grain_table_entry;
-            grain_size = header.size_grain;
-            Some(
-                read_grain_table(
-                    &mut grain_table_start_index,
-                    &header,
-                    (&ed.kind).into(),
-                )?
-            )
+            let has_compressed_grain = header.has_compressed_grain;
+            let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
+            let grain_size = header.size_grain;
+
+            let mut grain_table_start_index = 0;
+            let grain_table = read_grain_table(
+                &mut grain_table_start_index,
+                &header,
+                (&ed.kind).into(),
+            )?;
+
+            ExtentStorage::Sparse(SparseStorage {
+                file,
+                filename,
+                grain_table,
+                grain_size,
+                has_compressed_grain,
+                zeroed_grain_table_entry
+            })
         },
-        _ => None
-    };
-
-    let file = File::open(&ed_fn)?;
-
-    let offset = match ed.kind {
-        ExtentDescriptionInner::Flat { offset, .. } => Some(offset),
-        _ => None
-    };
-
-    let ex = ExtentDesc {
-        file: RefCell::new(file),
-        filename: ed_fn.to_string_lossy().to_string(),
-        start_sector: 0, // will be updated later (see below)
-        sectors: ed.sectors,
-        kind: (&ed.kind).into(),
-        grain_table,
-        grain_size,
-        offset,
-        has_compressed_grain,
-        zeroed_grain_table_entry,
-    };
-
-    if ex.kind != ExtentKind::Sparse && ex.kind != ExtentKind::VmfsSparse {
-        // skip this check (file on disk could be bigger)
-        debug_assert!(std::fs::metadata(&ed_fn).unwrap().len() <= ex.sectors * 512);
-    }
-
-    Ok(ex)
+        ExtentDescriptionInner::Vmfs { .. } => {
+            ExtentStorage::Flat(FlatStorage {
+                file,
+                filename,
+                offset: 0
+            })
+        },
+        ExtentDescriptionInner::Flat { offset, .. } => {
+            ExtentStorage::Flat(FlatStorage {
+                file,
+                filename,
+                offset: *offset
+            })
+        },
+        _ => todo!("TODO: {:?} support", ed.kind)
+    })
 }
 
 fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
     is_bin: bool
-) -> Result<Vec<ExtentDesc>, OpenError> {
+) -> Result<Vec<Extent>, OpenError> {
     let eds = extract_extent_descriptions(descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
@@ -468,7 +459,11 @@ fn read_extents_impl<T: AsRef<Path>>(
     let mut extents = vec![];
 
     for i in &eds {
-        extents.push(read_extent(i, &image_path, is_bin_and_singular)?);
+        extents.push(Extent {
+            sectors: i.sectors,
+            start_sector: 0,
+            storage: read_extent(i, &image_path, is_bin_and_singular)?
+        });
     }
 
     for i in 1..extents.len() {
@@ -482,7 +477,7 @@ pub fn read_extents<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
     is_bin: bool
-) -> Result<Vec<ExtentDesc>, OpenError> {
+) -> Result<Vec<Extent>, OpenError> {
     read_extents_impl(&image_path, descriptor, is_bin)
         .map_err(|e| e.with_path(&image_path))
 }

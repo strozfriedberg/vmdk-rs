@@ -3,7 +3,7 @@ use flate2::read::DeflateDecoder;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
-    fs,
+    fs::{self, File},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf}
 };
@@ -11,7 +11,7 @@ use std::{
 extern crate kaitai;
 
 use crate::errors::{OpenError, OpenErrorKind};
-use crate::extents::{ExtentDesc, ExtentKind, read_extents};
+use crate::extents::{Extent, ExtentStorage, read_extents};
 use crate::header::open_header;
 
 const SECTOR_SIZE: u64 = 512;
@@ -19,7 +19,7 @@ const SECTOR_SIZE: u64 = 512;
 #[derive(Debug)]
 pub struct VmdkReader {
     image_size: u64,
-    extents: Vec<Vec<ExtentDesc>>,
+    extents: Vec<Vec<Extent>>,
 }
 
 fn read_descriptor<T: AsRef<Path>>(
@@ -53,10 +53,10 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
 }
 
 fn get_extent_from_offset<'a>(
-    extents: &'a Vec<ExtentDesc>,
+    extents: &'a Vec<Extent>,
     offset: u64,
     local_offset: &mut u64,
-) -> Option<&'a ExtentDesc> {
+) -> Option<&'a Extent> {
     let sector_num = offset / 512;
 
     for i in extents {
@@ -71,21 +71,21 @@ fn get_extent_from_offset<'a>(
     None
 }
 
+// We're going off the rails on a crazy grain
 #[derive(Debug, thiserror::Error)]
 #[error("Sanity check failed for grain index {0}")]
 struct CrazyGrainIndex(u64);
 
 fn read_and_decompress_grain(
-    extent_desc: &ExtentDesc,
+    file: &mut File,
     grain_index: u64,
 ) -> std::io::Result<Vec<u8>> {
+
     #[derive(Debug)]
     struct CompressedGrainHeader {
         _lba: u64,
         data_size: u32,
     }
-
-    let mut file = extent_desc.file.borrow_mut();
 
     let cgh = CompressedGrainHeader {
         _lba: file.read_u64::<LittleEndian>()?,
@@ -167,7 +167,7 @@ impl VmdkReader {
         while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
                 let mut local_offset = offset;
-                let extent_desc = match get_extent_from_offset(ex, offset, &mut local_offset)
+                let extent = match get_extent_from_offset(ex, offset, &mut local_offset)
                 {
                     Some(e) => e,
                     None => {
@@ -176,82 +176,82 @@ impl VmdkReader {
                     }
                 };
 
-                let sparse = match extent_desc.kind {
-                    ExtentKind::Sparse | ExtentKind::VmfsSparse => true,
-                    _ => false
-                };
-
-                if sparse {
-                    grain_size = extent_desc.grain_size * SECTOR_SIZE;
-                }
-
                 let remaining_buf = &mut buf[bytes_read..];
                 let remaining_size = remaining_buf.len();
-                let remaining_grain_size = if grain_size > 0 {
-                    remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                }
-                else {
-                    remaining_size
-                };
+                let remaining_grain_size;
 
-                if sparse {
-                    // calculate grain index and offset
-                    let grain_index = offset / grain_size;
-                    let grain_data_offset = (offset % grain_size) as usize;
+                match &extent.storage {
+                    ExtentStorage::Sparse(storage) => {
+                        grain_size = storage.grain_size * SECTOR_SIZE;
 
-                    match extent_desc.grain_table.as_ref().unwrap().get(&grain_index) {
-                        None => {
-                            // if this is last vmdk-file
-                            if ex_pos == self.extents.len() - 1 {
-                                remaining_buf[..remaining_grain_size].fill(0);
-                            }
-                            else {
-                                // check in next
-                                continue;
-                            }
+                        remaining_grain_size = if grain_size > 0 {
+                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
                         }
-                        Some(sector_num) => {
-                            // handle zero GTE
-                            if extent_desc.zeroed_grain_table_entry && *sector_num == 1 {
-                                remaining_buf[..remaining_grain_size].fill(0);
-                            }
-                            else {
-                                let seek_pos = *sector_num * SECTOR_SIZE;
-                                extent_desc
-                                    .file
-                                    .borrow_mut()
-                                    .seek(SeekFrom::Start(seek_pos))?;
-                                let grain_data = if extent_desc.has_compressed_grain {
-                                    read_and_decompress_grain(extent_desc, grain_index)?
+                        else {
+                            remaining_size
+                        };
+
+                        // calculate grain index and offset
+                        let grain_index = offset / grain_size;
+                        let grain_data_offset = (offset % grain_size) as usize;
+
+                        match storage.grain_table.get(&grain_index) {
+                            None => {
+                                // if this is last vmdk-file
+                                if ex_pos == self.extents.len() - 1 {
+                                    remaining_buf[..remaining_grain_size].fill(0);
                                 }
                                 else {
-                                    // calculate real sector and read whole grain
-                                    let mut data = vec![0u8; grain_size as usize];
-                                    extent_desc.file.borrow_mut().read_exact(&mut data)?;
-                                    data
-                                };
-                                remaining_buf[..remaining_grain_size].clone_from_slice(
-                                    &grain_data[grain_data_offset
-                                        ..grain_data_offset + remaining_grain_size],
-                                );
+                                    // check in next
+                                    continue;
+                                }
+                            },
+                            Some(sector_num) => {
+                                // handle zero GTE
+                                if storage.zeroed_grain_table_entry && *sector_num == 1 {
+                                    remaining_buf[..remaining_grain_size].fill(0);
+                                }
+                                else {
+                                    let seek_pos = *sector_num * SECTOR_SIZE;
+                                    storage.file
+                                        .borrow_mut()
+                                        .seek(SeekFrom::Start(seek_pos))?;
+                                    let grain_data = if storage.has_compressed_grain {
+                                        read_and_decompress_grain(&mut storage.file.borrow_mut(), grain_index)?
+                                    }
+                                    else {
+                                        // calculate real sector and read whole grain
+                                        let mut data = vec![0u8; grain_size as usize];
+                                        storage.file.borrow_mut().read_exact(&mut data)?;
+                                        data
+                                    };
+                                    remaining_buf[..remaining_grain_size].clone_from_slice(
+                                        &grain_data[grain_data_offset
+                                            ..grain_data_offset + remaining_grain_size],
+                                    );
+                                }
                             }
                         }
-                    }
-                }
-                else {
-                    // FLAT, VMFS
-
-                    // handle extent offset only if ExtentKind::Flat
-                    if extent_desc.kind == ExtentKind::Flat {
-                        if let Some(ed_offset) = extent_desc.offset {
-                            local_offset += ed_offset;
+                    },
+                    ExtentStorage::Flat(storage) => {
+                        remaining_grain_size = if grain_size > 0 {
+                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
                         }
-                    }
+                        else {
+                            remaining_size
+                        };
 
-                    let mut f = extent_desc.file.borrow_mut();
+                        // FLAT, VMFS
 
-                    f.seek(SeekFrom::Start(local_offset))?;
-                    f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                        // only ExtentKind::Flat has nonzero offset
+                        local_offset += storage.offset;
+
+                        let mut f = storage.file.borrow_mut();
+
+                        f.seek(SeekFrom::Start(local_offset))?;
+                        f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                    },
+                    ExtentStorage::Zero => todo!("ZERO support")
                 }
 
                 bytes_read += remaining_grain_size;
