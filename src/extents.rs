@@ -23,8 +23,6 @@ sector_start = 0, sectors = 8323072
 sector_start = 8323072, sectors = 2162688
 */
 
-// TODO: rename to Extent, split into variants
-
 #[derive(Debug)]
 pub struct SparseStorage {
     pub file: RefCell<File>,
