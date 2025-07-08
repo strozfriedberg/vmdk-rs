@@ -56,15 +56,17 @@ fn extent_for_offset<'a>(
     extents: &'a [Extent],
     offset: u64
 ) -> Option<&'a Extent> {
-
     let sector = offset / 512;
-    for i in extents {
-        if sector >= i.start_sector && sector < i.start_sector + i.sectors {
-            return Some(i);
-        }
-    }
+    let i = extents.partition_point(|ex| ex.start_sector <= sector);
 
-    None
+    match i {
+        // offset before first extent
+        0 => None,
+        // offset is in extent i-1
+        i if sector < extents[i-1].start_sector + extents[i-1].sectors => Some(&extents[i-1]),
+        // offset is in a gap between extents i-1 and i
+        _ => None
+    }
 }
 
 // We're going off the rails on a crazy grain
@@ -311,8 +313,6 @@ mod test {
                 }
             )
         ));
-
-        eprintln!("{:?}", extent_for_offset(&exts, 10));
 
         // start of 1
         assert!(matches!(
