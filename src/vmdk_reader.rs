@@ -52,7 +52,7 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
     None
 }
 
-fn get_extent_from_offset<'a>(
+fn extent_for_offset<'a>(
     extents: &'a [Extent],
     offset: u64
 ) -> Option<&'a Extent> {
@@ -162,7 +162,7 @@ impl VmdkReader {
 
         while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
-                let exo = get_extent_from_offset(ex, offset);
+                let exo = extent_for_offset(ex, offset);
                 let extent = match exo {
                     Some(exo) => exo,
                     None => {
@@ -269,7 +269,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_get_extent_from_offset() {
+    fn test_extent_for_offset() {
         let exts = [
             Extent {
                 start_sector: 0,
@@ -289,7 +289,7 @@ mod test {
         ];
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 0),
+            extent_for_offset(&exts, 0),
             Some(
                 Extent {
                     start_sector: 0,
@@ -300,7 +300,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 9),
+            extent_for_offset(&exts, 9),
             Some(
                 Extent {
                     start_sector: 0,
@@ -311,7 +311,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 10),
+            extent_for_offset(&exts, 10),
             Some(
                 Extent {
                     start_sector: 10,
@@ -322,7 +322,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 11),
+            extent_for_offset(&exts, 11),
             Some(
                 Extent {
                     start_sector: 10,
@@ -333,7 +333,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 14),
+            extent_for_offset(&exts, 14),
             Some(
                 Extent {
                     start_sector: 10,
@@ -344,7 +344,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 15),
+            extent_for_offset(&exts, 15),
             Some(
                 Extent {
                     start_sector: 15,
@@ -355,7 +355,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 19),
+            extent_for_offset(&exts, 19),
             Some(
                 Extent {
                     start_sector: 19,
@@ -366,7 +366,7 @@ mod test {
         ));
 
         assert!(matches!(
-            get_extent_from_offset(&exts, 20),
+            extent_for_offset(&exts, 20),
             None
         ));
     }
