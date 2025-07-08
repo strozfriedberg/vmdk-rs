@@ -123,7 +123,7 @@ impl VmdkReader {
             let (descriptor, is_bin) = read_descriptor(&current_fn)?;
             let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
 
-            let total_size0 = extents0.iter().fold(0u64, |acc, i| acc + i.sectors * 512);
+            let total_size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
             if total_size == 0 {
                 total_size = total_size0;
             }
