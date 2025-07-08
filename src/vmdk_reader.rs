@@ -57,9 +57,9 @@ fn extent_for_offset<'a>(
     offset: u64
 ) -> Option<&'a Extent> {
 
-    let sector_num = offset / 512;
+    let sector = offset / 512;
     for i in extents {
-        if sector_num >= i.start_sector && sector_num < i.start_sector + i.sectors {
+        if sector >= i.start_sector && sector < i.start_sector + i.sectors {
             return Some(i);
         }
     }
