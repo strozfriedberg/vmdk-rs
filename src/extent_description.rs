@@ -1,6 +1,4 @@
-use std::{
-    str::FromStr
-};
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AccessMode {
