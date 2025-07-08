@@ -288,6 +288,7 @@ mod test {
             }
         ];
 
+        // start of 0
         assert!(matches!(
             extent_for_offset(&exts, 0),
             Some(
@@ -299,8 +300,9 @@ mod test {
             )
         ));
 
+        // end of 0
         assert!(matches!(
-            extent_for_offset(&exts, 9),
+            extent_for_offset(&exts, 9 * 512),
             Some(
                 Extent {
                     start_sector: 0,
@@ -310,8 +312,11 @@ mod test {
             )
         ));
 
+        eprintln!("{:?}", extent_for_offset(&exts, 10));
+
+        // start of 1
         assert!(matches!(
-            extent_for_offset(&exts, 10),
+            extent_for_offset(&exts, 10 * 512),
             Some(
                 Extent {
                     start_sector: 10,
@@ -321,8 +326,9 @@ mod test {
             )
         ));
 
+        // end of 1
         assert!(matches!(
-            extent_for_offset(&exts, 11),
+            extent_for_offset(&exts, 14 * 512),
             Some(
                 Extent {
                     start_sector: 10,
@@ -332,19 +338,9 @@ mod test {
             )
         ));
 
+        // start of 2
         assert!(matches!(
-            extent_for_offset(&exts, 14),
-            Some(
-                Extent {
-                    start_sector: 10,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        assert!(matches!(
-            extent_for_offset(&exts, 15),
+            extent_for_offset(&exts, 15 * 512),
             Some(
                 Extent {
                     start_sector: 15,
@@ -354,19 +350,21 @@ mod test {
             )
         ));
 
+        // end of 2
         assert!(matches!(
-            extent_for_offset(&exts, 19),
+            extent_for_offset(&exts, 19 * 512),
             Some(
                 Extent {
-                    start_sector: 19,
+                    start_sector: 15,
                     sectors: 5,
                     storage: ExtentStorage::Zero
                 }
             )
         ));
 
+        // past the end
         assert!(matches!(
-            extent_for_offset(&exts, 20),
+            extent_for_offset(&exts, 20 * 512),
             None
         ));
     }
