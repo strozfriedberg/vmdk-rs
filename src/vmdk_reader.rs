@@ -53,7 +53,7 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
 }
 
 fn get_extent_from_offset<'a>(
-    extents: &'a Vec<Extent>,
+    extents: &'a [Extent],
     offset: u64
 ) -> Option<(&'a Extent, u64)> {
     let sector_num = offset / 512;
