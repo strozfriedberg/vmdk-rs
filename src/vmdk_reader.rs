@@ -19,7 +19,7 @@ const SECTOR_SIZE: u64 = 512;
 #[derive(Debug)]
 pub struct VmdkReader {
     image_size: u64,
-    extents: Vec<Vec<Extent>>,
+    extents: Vec<Vec<Extent>>
 }
 
 fn read_descriptor<T: AsRef<Path>>(
