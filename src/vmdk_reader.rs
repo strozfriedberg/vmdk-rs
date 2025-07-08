@@ -55,16 +55,12 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
 fn get_extent_from_offset<'a>(
     extents: &'a [Extent],
     offset: u64
-) -> Option<(&'a Extent, u64)> {
-    let sector_num = offset / 512;
-    let mut local_offset = offset;
+) -> Option<&'a Extent> {
 
+    let sector_num = offset / 512;
     for i in extents {
         if sector_num >= i.start_sector && sector_num < i.start_sector + i.sectors {
-            return Some((i, local_offset));
-        }
-        else {
-            local_offset -= i.sectors * 512;
+            return Some(i);
         }
     }
 
@@ -167,13 +163,15 @@ impl VmdkReader {
         while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
                 let exo = get_extent_from_offset(ex, offset);
-                let (extent, local_offset) = match exo {
+                let extent = match exo {
                     Some(exo) => exo,
                     None => {
                         eof = true;
                         break;
                     }
                 };
+
+                let local_offset = offset - extent.start_sector * 512;
 
                 let remaining_buf = &mut buf[bytes_read..];
                 let remaining_size = remaining_buf.len();
@@ -263,5 +261,113 @@ impl VmdkReader {
 
     pub fn total_size(&self) -> u64 {
         self.image_size
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_get_extent_from_offset() {
+        let exts = [
+            Extent {
+                start_sector: 0,
+                sectors: 10,
+                storage: ExtentStorage::Zero
+            },
+            Extent {
+                start_sector: 10,
+                sectors: 5,
+                storage: ExtentStorage::Zero
+            },
+            Extent {
+                start_sector: 15,
+                sectors: 5,
+                storage: ExtentStorage::Zero
+            }
+        ];
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 0),
+            Some(
+                Extent {
+                    start_sector: 0,
+                    sectors: 10,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 9),
+            Some(
+                Extent {
+                    start_sector: 0,
+                    sectors: 10,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 10),
+            Some(
+                Extent {
+                    start_sector: 10,
+                    sectors: 5,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 11),
+            Some(
+                Extent {
+                    start_sector: 10,
+                    sectors: 5,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 14),
+            Some(
+                Extent {
+                    start_sector: 10,
+                    sectors: 5,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 15),
+            Some(
+                Extent {
+                    start_sector: 15,
+                    sectors: 5,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 19),
+            Some(
+                Extent {
+                    start_sector: 19,
+                    sectors: 5,
+                    storage: ExtentStorage::Zero
+                }
+            )
+        ));
+
+        assert!(matches!(
+            get_extent_from_offset(&exts, 20),
+            None
+        ));
     }
 }
