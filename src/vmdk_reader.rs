@@ -164,13 +164,9 @@ impl VmdkReader {
 
         while bytes_read < buf.len() && !eof {
             for (ex_pos, ex) in self.extents.iter().enumerate() {
-                let exo = extent_for_offset(ex, offset);
-                let extent = match exo {
-                    Some(exo) => exo,
-                    None => {
-                        eof = true;
-                        break;
-                    }
+                let Some(extent) = extent_for_offset(ex, offset) else {
+                    eof = true;
+                    break;
                 };
 
                 let local_offset = offset - extent.start_sector * 512;
