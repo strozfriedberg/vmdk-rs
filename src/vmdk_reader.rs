@@ -242,7 +242,7 @@ impl VmdkReader {
 
                         let mut f = storage.file.borrow_mut();
 
-                        // only ExtentKind::Flat has nonzero offset
+                        // NB: only ExtentKind::Flat has nonzero offset
                         f.seek(SeekFrom::Start(local_offset + storage.offset))?;
                         f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
                     },
