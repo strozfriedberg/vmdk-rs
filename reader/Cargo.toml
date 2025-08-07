@@ -10,4 +10,4 @@ edition = "2021"
 sha-1 = "0.10.1"
 clap = { version = "4.1.7", features = ["derive"] }
 
-vmdk = { path = ".." }
+vmdk-rs = { path = ".." }
