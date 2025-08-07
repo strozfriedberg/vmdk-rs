@@ -4,13 +4,13 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
     fs::{self, File},
-    io::{Read, Seek, SeekFrom},
+    io::{BufReader, BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf}
 };
 
 extern crate kaitai;
 
-use crate::errors::{OpenError, OpenErrorKind};
+use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
 use crate::extents::{Extent, ExtentStorage, read_extents};
 use crate::header::open_header;
 
@@ -29,12 +29,39 @@ fn read_descriptor<T: AsRef<Path>>(
 // FIXME: don't swallow errors from open_bin
     match open_header(&image_path) {
         Ok(header) => Ok((header.descriptor, true)),
-        Err(_) => Ok((
-            fs::read_to_string(&image_path)
+        Err(_) => {
+            // maybe this is a raw descriptor file
+            let f = File::open(&image_path)
                 .map_err(OpenError::from)
-                .map_err(|e| e.with_path(&image_path))?,
-            false
-        ))
+                .map_err(|e| e.with_path(&image_path))?;
+
+            let f = BufReader::new(f);
+
+            for line in f.lines() {
+                let line = line
+                    .map_err(OpenError::from)
+                    .map_err(|e| e.with_path(&image_path))?;
+
+                match line.as_str() {
+                    "# Disk DescriptorFile" => break,
+                    "" => continue,
+                    _ => return Err(OpenError {
+                        path: image_path.as_ref().into(),
+                        kind: OpenErrorKind::DescriptorError(
+                            DescriptorError::UnrecognizedDescriptor
+                        )
+                    })
+                }
+            }
+
+            Ok((
+                fs::read_to_string(&image_path)
+                    .map_err(OpenError::from)
+                    .map_err(|e| e.with_path(&image_path))?,
+                false
+            ))
+
+        }
     }
 }
 
