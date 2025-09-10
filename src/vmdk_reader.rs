@@ -18,7 +18,7 @@ const SECTOR_SIZE: u64 = 512;
 
 #[derive(Debug)]
 pub struct VmdkReader {
-    image_size: u64,
+    pub image_size: u64,
     extents: Vec<Vec<Extent>>
 }
 
@@ -282,10 +282,6 @@ impl VmdkReader {
         }
 
         Ok(bytes_read)
-    }
-
-    pub fn total_size(&self) -> u64 {
-        self.image_size
     }
 }
 
