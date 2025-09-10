@@ -13,7 +13,7 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
     let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];
     let mut offset = 0;
-    while offset < vmdk_reader.total_size {
+    while offset < vmdk_reader.total_size() {
         let buf_size = buf.len();
         let read = match vmdk_reader.read_at_offset(offset, &mut buf[..buf_size]) {
             Ok(v) => v,
