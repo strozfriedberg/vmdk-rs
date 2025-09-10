@@ -209,6 +209,25 @@ mod test {
     }
 
     #[track_caller]
+    fn assert_err_starts_with(err: *mut VmdkError, prefix: &CStr) {
+        assert!(!err.is_null());
+        let err = unsafe { Box::from_raw(err) };
+
+        assert!(!err.message.is_null());
+
+        let message = unsafe { CStr::from_ptr(&*err.message) };
+
+        let msg_b = message.to_bytes();
+        let pre_b = prefix.to_bytes();
+
+        assert_eq!(
+            &msg_b[..pre_b.len()],
+            pre_b,
+            "{message:?} does not start with {prefix:?}"
+        );
+    }
+
+    #[track_caller]
     fn assert_eq_test_data_no_hashing(handle: &VmdkHandle, exp: &TestData) {
         let image_path = unsafe { CStr::from_ptr(handle.image_path) }
             .to_str()
@@ -383,4 +402,39 @@ mod test {
         assert_err(err, c"buf is null");
         assert_eq!(r, 0);
     }
+
+    #[test]
+    fn test_vmdk_read_offset_past_end() {
+        let path = c"data/vmfs_thick.vmdk".as_ptr();
+        let mut err = std::ptr::null_mut();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                path,
+                &mut err
+            )
+        });
+
+        assert_err_null(err);
+        assert!(!h.ptr.is_null());
+
+        let mut buf: [c_char; 1] = [0];
+
+        let r = unsafe {
+            vmdk_read(
+                h.ptr,
+                u64::MAX,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut err
+            )
+        };
+
+        assert_err_starts_with(
+            err,
+            c"Requested offset 18446744073709551615 is beyond end of image"
+        );
+        assert_eq!(r, 0);
+    }
+
 }

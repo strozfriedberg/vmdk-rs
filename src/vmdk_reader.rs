@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
     fs::{self, File},
-    io::{BufReader, BufRead, Read, Seek, SeekFrom},
+    io::{self, BufReader, BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf}
 };
 
@@ -21,6 +21,14 @@ pub struct VmdkReader {
     pub image_path: PathBuf,
     pub image_size: u64,
     extents: Vec<Vec<Extent>>
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReadError {
+    #[error("Requested offset {0} is beyond end of image {1}")]
+    OffsetBeyondEnd(u64, u64),
+    #[error("{0}")]
+    IoError(#[from] io::Error)
 }
 
 fn read_descriptor<T: AsRef<Path>>(
@@ -185,8 +193,12 @@ impl VmdkReader {
         &self,
         mut offset: u64,
         buf: &mut [u8]
-    ) -> std::io::Result<usize>
+    ) -> Result<usize, ReadError>
     {
+        if offset > self.image_size {
+            return Err(ReadError::OffsetBeyondEnd(offset, self.image_size));
+        }
+
         let mut bytes_read = 0;
         let mut grain_size = 0;
         let mut eof = false;
