@@ -18,6 +18,7 @@ const SECTOR_SIZE: u64 = 512;
 
 #[derive(Debug)]
 pub struct VmdkReader {
+    pub image_path: PathBuf,
     pub image_size: u64,
     extents: Vec<Vec<Extent>>
 }
@@ -174,6 +175,7 @@ impl VmdkReader {
         }
 
         Ok(Self {
+            image_path: image_path.as_ref().into(),
             image_size: total_size,
             extents,
         })
