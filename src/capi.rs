@@ -242,6 +242,43 @@ mod test {
         assert_eq!(&act, exp);
     }
 
+    #[track_caller]
+    fn assert_eq_test_data(h: *mut VmdkHandle, exp: &TestData) {
+        let handle = unsafe { &*h };
+
+        let sha1 = do_hash(
+            |offset, buf: &mut [u8]| {
+                let mut err = std::ptr::null_mut();
+                let read = unsafe {
+                    vmdk_read(
+                        h,
+                        offset,
+                        buf.as_mut_ptr() as *mut c_char,
+                        buf.len(),
+                        &mut err
+                    )
+                };
+
+                assert_err_null(err);
+                read
+            },
+            handle.image_size,
+            false
+        );
+
+        let image_path = unsafe { CStr::from_ptr(handle.image_path) }
+            .to_str()
+            .unwrap();
+
+        let act = TestData {
+            image_path,
+            image_size: handle.image_size,
+            sha1: &sha1
+        };
+
+        assert_eq!(&act, exp);
+    }
+
     #[test]
     fn test_vmdk_open_null_path_null_err() {
         let h = Holder::new(unsafe {
@@ -310,7 +347,6 @@ mod test {
         // nothing to test here other than that it doesn't crash
         unsafe { vmdk_close(std::ptr::null_mut()) };
     }
-
 
     #[test]
     fn test_vmdk_read_null_handle_null_err() {
@@ -437,4 +473,25 @@ mod test {
         assert_eq!(r, 0);
     }
 
+    #[test]
+    fn test_vmdk_read_and_hash() {
+        let path = c"data/vmfs_thick.vmdk".as_ptr();
+        let mut err = std::ptr::null_mut();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                path,
+                &mut err
+            )
+        });
+
+        assert_err_null(err);
+        assert!(!h.ptr.is_null());
+
+        let mut handle = h.into_box();
+        assert_eq_test_data(&mut *handle, &VMFS_THICK);
+
+        let handle = Box::into_raw(handle);
+        unsafe { vmdk_close(handle); }
+    }
 }
