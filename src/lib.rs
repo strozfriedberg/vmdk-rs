@@ -1,9 +1,13 @@
+pub mod vmdk_reader;
+
+#[cfg(feature = "capi")]
+pub mod capi;
+
 mod errors;
 mod extent_description;
 mod extents;
 mod generated;
 mod header;
-pub mod vmdk_reader;
 
 #[cfg(test)]
 mod test {

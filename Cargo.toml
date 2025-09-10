@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["LevelBlue"]
 edition = "2021"
 
+[profile.release]
+debug = false
+lto = true
+
 [lib]
 name = "vmdk"
 path = "src/lib.rs"
@@ -11,6 +15,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "reader"
 path = "src/main.rs"
+
+[features]
+capi = []
 
 [dependencies]
 clap = { version = "4.1.7", features = ["derive"] }
