@@ -3,6 +3,12 @@ pub mod vmdk_reader;
 #[cfg(feature = "capi")]
 pub mod capi;
 
+#[cfg(test)]
+mod test_data;
+
+#[cfg(test)]
+mod test_helper;
+
 mod errors;
 mod extent_description;
 mod extents;
@@ -11,105 +17,75 @@ mod header;
 
 #[cfg(test)]
 mod test {
-    use crate::vmdk_reader::VmdkReader;
+    use crate::{
+        test_data::*,
+        test_helper::do_hash,
+        vmdk_reader::VmdkReader
+    };
+
     use sha1::{Digest, Sha1};
 
     #[track_caller]
-    fn do_hash(vmdk_path: &str) -> String {
-        let vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
+    fn assert_eq_test_data(exp: &TestData) {
+        let reader = VmdkReader::open(exp.image_path).unwrap();
 
-        let mut hasher = Sha1::new();
-        let mut buf: Vec<u8> = vec![0; 1048576];
-        let mut offset = 0;
+        let sha1 = do_hash(
+            |offset, buf: &mut [u8]| {
+                let buf_len = buf.len();
+                reader.read_at_offset(offset, &mut buf[..buf_len])
+                    .unwrap()
+            },
+            reader.image_size,
+            false
+        );
 
-        while offset < vmdk_reader.image_size {
-            let buf_size = buf.len();
-            let read = vmdk_reader
-                .read_at_offset(offset, &mut buf[..buf_size])
-                .unwrap();
+        let act = TestData {
+            image_path: exp.image_path,
+            image_size: reader.image_size,
+            sha1: &sha1
+        };
 
-            if read == 0 {
-                break;
-            }
-
-            hasher.update(&buf[..read]);
-
-            offset += read as u64;
-        }
-        let result = hasher.finalize();
-        format!("{:X}", result)
-    }
-
-    #[track_caller]
-    fn assert_hash(
-        image_path: &str,
-        expected: &str
-    ) {
-        assert_eq!(do_hash(image_path), expected);
+        assert_eq!(&act, exp);
     }
 
     #[test]
     fn test_vmfs_thick_000001_vmdk() {
-        assert_hash(
-            "data/vmfs_thick-000001.vmdk",
-            "2CCF34D146EF98204D1889FC44E94AD94E0B1CB6",
-        );
+        assert_eq_test_data(&VMFS_THICK_000001);
     }
 
     #[test]
     fn test_vmfs_thick_vmdk() {
-        assert_hash(
-            "data/vmfs_thick.vmdk",
-            "17EAF058191C5F2639D8F983CA7633E4F47087D1"
-        );
+        assert_eq_test_data(&VMFS_THICK);
     }
 
     #[test]
     fn test_two_gb_max_extent_sparse_vmdk() {
-        assert_hash(
-            "data/twoGbMaxExtentSparse.vmdk",
-            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
-        );
+        assert_eq_test_data(&TWO_GB_MAX_EXTENT_SPARSE);
     }
 
     #[test]
     fn test_two_gb_max_extent_flat_vmdk() {
-        assert_hash(
-            "data/twoGbMaxExtentFlat.vmdk",
-            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
-        );
+        assert_eq_test_data(&TWO_GB_MAX_EXTENT_FLAT);
     }
 
     #[test]
     fn test_stream_optimized_vmdk() {
-        assert_hash(
-            "data/streamOptimized.vmdk",
-            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
-        );
+        assert_eq_test_data(&STREAM_OPTIMIZED);
     }
 
     #[test]
     fn test_monolithic_sparse_vmdk() {
-        assert_hash(
-            "data/monolithicSparse.vmdk",
-            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
-        );
+        assert_eq_test_data(&MONOLITHIC_SPARSE);
     }
 
     #[test]
     fn test_monolithic_flat_vmdk() {
-        assert_hash(
-            "data/monolithicFlat.vmdk",
-            "DD2FADE471D68658B2EBBFF7474F5D0A99DA8989"
-        );
+        assert_eq_test_data(&MONOLITHIC_FLAT);
     }
 
     #[test]
     fn test_stream_optimized_with_markers_vmdk() {
         // vmdk_dump.exe crashes on this stream optimized image with markers
-        assert_hash(
-            "data/streamOptimizedWithMarkers.vmdk",
-            "B6FD01DD1B93B3589E6D76F7507AF55C589EF69D"
-        );
+        assert_eq_test_data(&STREAM_OPTIMIZED_WITH_MARKERS);
     }
 }
