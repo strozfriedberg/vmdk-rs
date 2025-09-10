@@ -130,3 +130,91 @@ pub unsafe extern "C" fn vmdk_read(
     unsafe { &*(*handle).reader }.read_at_offset(offset, buf)
         .unwrap_or_else(|e| { fill_error(e, err); 0 })
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct Holder<T> {
+        ptr: *mut T
+    }
+
+    impl<T> Holder<T> {
+        fn new(ptr: *mut T) -> Self {
+            Self { ptr }
+        }
+
+        fn into_box(mut self) -> Box<T> {
+            let ptr = self.ptr;
+            self.ptr = std::ptr::null_mut();
+            unsafe { Box::from_raw(ptr) }
+        }
+    }
+
+    impl<T> Drop for Holder<T> {
+        fn drop(&mut self) {
+            if !self.ptr.is_null() {
+                unsafe { drop(Box::from_raw(self.ptr)) }
+            }
+        }
+    }
+
+    #[track_caller]
+    fn assert_err(err: *mut VmdkError, message: &CStr) {
+        assert!(!err.is_null());
+        let err = unsafe { Box::from_raw(err) };
+
+        assert!(!err.message.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(&*err.message) },
+            message
+        );
+    }
+
+    #[track_caller]
+    fn assert_err_null(err: *mut VmdkError) {
+        let err = Holder::new(err);
+        assert!(err.ptr.is_null());
+    }
+
+    #[test]
+    fn vmdk_open_null_path_null_err() {
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                std::ptr::null(),
+                std::ptr::null_mut()
+            )
+        });
+
+        assert!(h.ptr.is_null());
+    }
+
+    #[test]
+    fn vmdk_open_nonexistent_path_null_err() {
+        let path = c"bogus".as_ptr();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                path,
+                std::ptr::null_mut()
+            )
+        });
+
+        assert!(h.ptr.is_null());
+    }
+
+    #[test]
+    fn vmdk_open_null_paths() {
+        let mut err = std::ptr::null_mut();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                std::ptr::null(),
+                &mut err
+            )
+        });
+
+        assert_err(err, c"image_path is null");
+        assert!(h.ptr.is_null());
+    }
+}
