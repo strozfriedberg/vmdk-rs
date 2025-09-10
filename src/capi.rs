@@ -224,7 +224,7 @@ mod test {
     }
 
     #[test]
-    fn vmdk_open_null_path_null_err() {
+    fn test_vmdk_open_null_path_null_err() {
         let h = Holder::new(unsafe {
             vmdk_open(
                 std::ptr::null(),
@@ -236,7 +236,7 @@ mod test {
     }
 
     #[test]
-    fn vmdk_open_nonexistent_path_null_err() {
+    fn test_vmdk_open_nonexistent_path_null_err() {
         let path = c"bogus".as_ptr();
 
         let h = Holder::new(unsafe {
@@ -250,7 +250,7 @@ mod test {
     }
 
     #[test]
-    fn vmdk_open_null_paths() {
+    fn test_vmdk_open_null_paths() {
         let mut err = std::ptr::null_mut();
 
         let h = Holder::new(unsafe {
@@ -265,7 +265,7 @@ mod test {
     }
 
     #[test]
-    fn vmkd_open_ok() {
+    fn test_vmkd_open_ok() {
         let path = c"data/vmfs_thick.vmdk".as_ptr();
         let mut err = std::ptr::null_mut();
 
@@ -286,4 +286,101 @@ mod test {
         unsafe { vmdk_close(handle); }
     }
 
+    #[test]
+    fn test_vmdk_close_null() {
+        // nothing to test here other than that it doesn't crash
+        unsafe { vmdk_close(std::ptr::null_mut()) };
+    }
+
+
+    #[test]
+    fn test_vmdk_read_null_handle_null_err() {
+        let mut buf: [c_char; 1] = [0];
+
+        let r = unsafe {
+            vmdk_read(
+                std::ptr::null_mut(),
+                0,
+                buf.as_mut_ptr(),
+                buf.len(),
+                std::ptr::null_mut()
+            )
+        };
+
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn test_vmdk_read_null_buffer_null_err() {
+        let path = c"data/vmfs_thick.vmdk".as_ptr();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                path,
+                std::ptr::null_mut()
+            )
+        });
+
+        assert!(!h.ptr.is_null());
+
+        let r = unsafe {
+            vmdk_read(
+                h.ptr,
+                0,
+                std::ptr::null_mut(),
+                1,
+                std::ptr::null_mut()
+            )
+        };
+
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn test_vmdk_read_null_handle() {
+        let mut buf: [c_char; 1] = [0];
+        let mut err = std::ptr::null_mut();
+
+        let r = unsafe {
+            vmdk_read(
+                std::ptr::null_mut(),
+                0,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut err
+            )
+        };
+
+        assert_err(err, c"handle is null");
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn test_vmdk_read_null_buffer() {
+        let path = c"data/vmfs_thick.vmdk".as_ptr();
+        let mut err = std::ptr::null_mut();
+
+        let h = Holder::new(unsafe {
+            vmdk_open(
+                path,
+                &mut err
+            )
+        });
+
+        assert_err_null(err);
+        assert!(!h.ptr.is_null());
+
+        let r = unsafe {
+            vmdk_read(
+                h.ptr,
+                0,
+                std::ptr::null_mut(),
+                1,
+                &mut err
+            )
+        };
+
+        assert_err(err, c"buf is null");
+        assert_eq!(r, 0);
+    }
 }
