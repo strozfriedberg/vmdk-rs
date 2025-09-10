@@ -45,9 +45,9 @@ where
 {
     path.as_ref()
         .to_str()
-        .ok_or_else(|| format!("path is not UTF-8"))
+        .ok_or_else(|| "path is not UTF-8".into())
         .and_then(|s| CString::new(s)
-            .map_err(|_| format!("path contains an internal null"))
+            .map_err(|_| "path contains an internal null".into())
         )
 }
 

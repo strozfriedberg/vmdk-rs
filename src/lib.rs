@@ -23,8 +23,6 @@ mod test {
         vmdk_reader::VmdkReader
     };
 
-    use sha1::{Digest, Sha1};
-
     #[track_caller]
     fn assert_eq_test_data(exp: &TestData) {
         let reader = VmdkReader::open(exp.image_path).unwrap();

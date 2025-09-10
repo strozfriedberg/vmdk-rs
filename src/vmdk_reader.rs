@@ -88,10 +88,10 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
     None
 }
 
-fn extent_for_offset<'a>(
-    extents: &'a [Extent],
+fn extent_for_offset(
+    extents: &[Extent],
     offset: u64
-) -> Option<&'a Extent> {
+) -> Option<&Extent> {
     let sector = offset / 512;
     let i = extents.partition_point(|ex| ex.start_sector <= sector);
 
