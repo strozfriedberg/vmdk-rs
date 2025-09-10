@@ -2,7 +2,7 @@
 
 . .world/build_config.sh
 
-if [[ "$Linkage" == 'static' || ( "$Target" != 'linux' && "$Target" != 'windows_package' ) ]]; then
+# don't build for 32-bit Windows for now
+if [[ $Target == 'windows' && $Architecture == '32' ]]; then
   exit
 fi
-
