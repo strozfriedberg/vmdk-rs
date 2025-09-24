@@ -8,7 +8,7 @@ if [[ $Target == 'windows' && $Architecture == '32' ]]; then
 fi
 
 if [[ $Target == 'windows'  ]]; then
-  RUST_OPTS="--target x86_64-pc-windows-gnu --config target.x86_64-pc-windows-gnu.runner='wine'"
+  RUST_OPTS="--target x86_64-pc-windows-gnu --config target.x86_64-pc-windows-gnu.runner='wine' --meson-paths"
 fi
 
 cargo clippy --all-features --all-targets

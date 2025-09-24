@@ -8,7 +8,7 @@ if [[ $Target == 'windows' && $Architecture == '32' ]]; then
 fi
 
 if [[ $Target == 'windows'  ]]; then
-  RUST_OPTS="--target x86_64-pc-windows-gnu"
+  RUST_OPTS="--target x86_64-pc-windows-gnu --meson-paths"
 fi
 
 cargo cinstall --prefix="$INSTALL" --libdir=lib $RUST_OPTS
