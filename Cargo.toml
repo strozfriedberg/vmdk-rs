@@ -9,7 +9,7 @@ debug = false
 lto = true
 
 [lib]
-name = "vmdk"
+name = "vmdkrs"
 path = "src/lib.rs"
 
 [[bin]]

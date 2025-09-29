@@ -1,6 +1,6 @@
 use clap::Parser;
 use sha1::{Digest, Sha1};
-use vmdk::vmdk_reader::VmdkReader;
+use vmdkrs::vmdk_reader::VmdkReader;
 
 #[derive(Parser)]
 struct Cli {
