@@ -67,17 +67,17 @@ impl KStruct for VmwareCowd {
 impl VmwareCowd {
 }
 impl VmwareCowd {
-    pub fn magic(&self) -> Ref<Vec<u8>> {
+    pub fn magic(&self) -> Ref<'_, Vec<u8>> {
         self.magic.borrow()
     }
 }
 impl VmwareCowd {
-    pub fn version(&self) -> Ref<u32> {
+    pub fn version(&self) -> Ref<'_, u32> {
         self.version.borrow()
     }
 }
 impl VmwareCowd {
-    pub fn flags(&self) -> Ref<u32> {
+    pub fn flags(&self) -> Ref<'_, u32> {
         self.flags.borrow()
     }
 }
@@ -86,7 +86,7 @@ impl VmwareCowd {
  * Maximum number of sectors in a given image file (capacity)
  */
 impl VmwareCowd {
-    pub fn size_max(&self) -> Ref<u32> {
+    pub fn size_max(&self) -> Ref<'_, u32> {
         self.size_max.borrow()
     }
 }
@@ -95,7 +95,7 @@ impl VmwareCowd {
  * Grain number of sectors
  */
 impl VmwareCowd {
-    pub fn size_grain(&self) -> Ref<u32> {
+    pub fn size_grain(&self) -> Ref<'_, u32> {
         self.size_grain.borrow()
     }
 }
@@ -104,7 +104,7 @@ impl VmwareCowd {
  * Grain directory sector number (usually 4)
  */
 impl VmwareCowd {
-    pub fn grain_dir(&self) -> Ref<u32> {
+    pub fn grain_dir(&self) -> Ref<'_, u32> {
         self.grain_dir.borrow()
     }
 }
@@ -113,17 +113,17 @@ impl VmwareCowd {
  * Number of grain directory entries
  */
 impl VmwareCowd {
-    pub fn num_grain_table_entries(&self) -> Ref<u32> {
+    pub fn num_grain_table_entries(&self) -> Ref<'_, u32> {
         self.num_grain_table_entries.borrow()
     }
 }
 impl VmwareCowd {
-    pub fn next_free_grain(&self) -> Ref<u32> {
+    pub fn next_free_grain(&self) -> Ref<'_, u32> {
         self.next_free_grain.borrow()
     }
 }
 impl VmwareCowd {
-    pub fn _io(&self) -> Ref<BytesReader> {
+    pub fn _io(&self) -> Ref<'_, BytesReader> {
         self._io.borrow()
     }
 }

@@ -88,7 +88,7 @@ impl KStruct for VmwareVmdk {
 impl VmwareVmdk {
     pub fn len_sector(
         &self
-    ) -> KResult<Ref<i32>> {
+    ) -> KResult<Ref<'_, i32>> {
         let _io = self._io.borrow();
         let _rrc = self._root.get_value().borrow().upgrade();
         let _prc = self._parent.get_value().borrow().upgrade();
@@ -102,7 +102,7 @@ impl VmwareVmdk {
     }
     pub fn descriptor(
         &self
-    ) -> KResult<Ref<Vec<u8>>> {
+    ) -> KResult<Ref<'_, Vec<u8>>> {
         let _io = self._io.borrow();
         let _rrc = self._root.get_value().borrow().upgrade();
         let _prc = self._parent.get_value().borrow().upgrade();
@@ -120,7 +120,7 @@ impl VmwareVmdk {
     }
     pub fn grain_primary(
         &self
-    ) -> KResult<Ref<Vec<u8>>> {
+    ) -> KResult<Ref<'_, Vec<u8>>> {
         let _io = self._io.borrow();
         let _rrc = self._root.get_value().borrow().upgrade();
         let _prc = self._parent.get_value().borrow().upgrade();
@@ -138,7 +138,7 @@ impl VmwareVmdk {
     }
     pub fn grain_secondary(
         &self
-    ) -> KResult<Ref<Vec<u8>>> {
+    ) -> KResult<Ref<'_, Vec<u8>>> {
         let _io = self._io.borrow();
         let _rrc = self._root.get_value().borrow().upgrade();
         let _prc = self._parent.get_value().borrow().upgrade();
@@ -156,17 +156,17 @@ impl VmwareVmdk {
     }
 }
 impl VmwareVmdk {
-    pub fn magic(&self) -> Ref<Vec<u8>> {
+    pub fn magic(&self) -> Ref<'_, Vec<u8>> {
         self.magic.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn version(&self) -> Ref<i32> {
+    pub fn version(&self) -> Ref<'_, i32> {
         self.version.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn flags(&self) -> Ref<OptRc<VmwareVmdk_HeaderFlags>> {
+    pub fn flags(&self) -> Ref<'_, OptRc<VmwareVmdk_HeaderFlags>> {
         self.flags.borrow()
     }
 }
@@ -175,12 +175,12 @@ impl VmwareVmdk {
  * Maximum number of sectors in a given image file (capacity)
  */
 impl VmwareVmdk {
-    pub fn size_max(&self) -> Ref<i64> {
+    pub fn size_max(&self) -> Ref<'_, i64> {
         self.size_max.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn size_grain(&self) -> Ref<i64> {
+    pub fn size_grain(&self) -> Ref<'_, i64> {
         self.size_grain.borrow()
     }
 }
@@ -189,7 +189,7 @@ impl VmwareVmdk {
  * Embedded descriptor file start sector number (0 if not available)
  */
 impl VmwareVmdk {
-    pub fn start_descriptor(&self) -> Ref<i64> {
+    pub fn start_descriptor(&self) -> Ref<'_, i64> {
         self.start_descriptor.borrow()
     }
 }
@@ -198,7 +198,7 @@ impl VmwareVmdk {
  * Number of sectors that embedded descriptor file occupies
  */
 impl VmwareVmdk {
-    pub fn size_descriptor(&self) -> Ref<i64> {
+    pub fn size_descriptor(&self) -> Ref<'_, i64> {
         self.size_descriptor.borrow()
     }
 }
@@ -207,7 +207,7 @@ impl VmwareVmdk {
  * Number of grains table entries
  */
 impl VmwareVmdk {
-    pub fn num_grain_table_entries(&self) -> Ref<i32> {
+    pub fn num_grain_table_entries(&self) -> Ref<'_, i32> {
         self.num_grain_table_entries.borrow()
     }
 }
@@ -216,7 +216,7 @@ impl VmwareVmdk {
  * Secondary (backup) grain directory start sector number
  */
 impl VmwareVmdk {
-    pub fn start_secondary_grain(&self) -> Ref<i64> {
+    pub fn start_secondary_grain(&self) -> Ref<'_, i64> {
         self.start_secondary_grain.borrow()
     }
 }
@@ -225,32 +225,32 @@ impl VmwareVmdk {
  * Primary grain directory start sector number
  */
 impl VmwareVmdk {
-    pub fn start_primary_grain(&self) -> Ref<i64> {
+    pub fn start_primary_grain(&self) -> Ref<'_, i64> {
         self.start_primary_grain.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn size_metadata(&self) -> Ref<i64> {
+    pub fn size_metadata(&self) -> Ref<'_, i64> {
         self.size_metadata.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn is_dirty(&self) -> Ref<u8> {
+    pub fn is_dirty(&self) -> Ref<'_, u8> {
         self.is_dirty.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn stuff(&self) -> Ref<Vec<u8>> {
+    pub fn stuff(&self) -> Ref<'_, Vec<u8>> {
         self.stuff.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn compression_method(&self) -> Ref<VmwareVmdk_CompressionMethods> {
+    pub fn compression_method(&self) -> Ref<'_, VmwareVmdk_CompressionMethods> {
         self.compression_method.borrow()
     }
 }
 impl VmwareVmdk {
-    pub fn _io(&self) -> Ref<BytesReader> {
+    pub fn _io(&self) -> Ref<'_, BytesReader> {
         self._io.borrow()
     }
 }
@@ -341,52 +341,52 @@ impl KStruct for VmwareVmdk_HeaderFlags {
 impl VmwareVmdk_HeaderFlags {
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn reserved1(&self) -> Ref<u64> {
+    pub fn reserved1(&self) -> Ref<'_, u64> {
         self.reserved1.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn zeroed_grain_table_entry(&self) -> Ref<bool> {
+    pub fn zeroed_grain_table_entry(&self) -> Ref<'_, bool> {
         self.zeroed_grain_table_entry.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn use_secondary_grain_dir(&self) -> Ref<bool> {
+    pub fn use_secondary_grain_dir(&self) -> Ref<'_, bool> {
         self.use_secondary_grain_dir.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn valid_new_line_detection_test(&self) -> Ref<bool> {
+    pub fn valid_new_line_detection_test(&self) -> Ref<'_, bool> {
         self.valid_new_line_detection_test.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn reserved2(&self) -> Ref<u8> {
+    pub fn reserved2(&self) -> Ref<'_, u8> {
         self.reserved2.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn reserved3(&self) -> Ref<u64> {
+    pub fn reserved3(&self) -> Ref<'_, u64> {
         self.reserved3.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn has_metadata(&self) -> Ref<bool> {
+    pub fn has_metadata(&self) -> Ref<'_, bool> {
         self.has_metadata.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn has_compressed_grain(&self) -> Ref<bool> {
+    pub fn has_compressed_grain(&self) -> Ref<'_, bool> {
         self.has_compressed_grain.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn reserved4(&self) -> Ref<u8> {
+    pub fn reserved4(&self) -> Ref<'_, u8> {
         self.reserved4.borrow()
     }
 }
 impl VmwareVmdk_HeaderFlags {
-    pub fn _io(&self) -> Ref<BytesReader> {
+    pub fn _io(&self) -> Ref<'_, BytesReader> {
         self._io.borrow()
     }
 }
