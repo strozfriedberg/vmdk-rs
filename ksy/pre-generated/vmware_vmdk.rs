@@ -66,7 +66,7 @@ impl KStruct for VmwareVmdk {
         let _r = _rrc.as_ref().unwrap();
         *self_rc.magic.borrow_mut() = _io.read_bytes(4 as usize)?.into();
         if !(*self_rc.magic() == vec![0x4bu8, 0x44u8, 0x4du8, 0x56u8]) {
-            return Err(KError::ValidationNotEqual(r#"vec![0x4bu8, 0x44u8, 0x4du8, 0x56u8], *self_rc.magic(), _io, "/seq/0""#.to_string()));
+            return Err(KError::ValidationFailed(ValidationFailedError { kind: ValidationKind::NotEqual, src_path: r#"vec![0x4bu8, 0x44u8, 0x4du8, 0x56u8], *self_rc.magic(), _io, "/seq/0""#.to_string()}));
         }
         *self_rc.version.borrow_mut() = _io.read_s4le()?.into();
         let t = Self::read_into::<_, VmwareVmdk_HeaderFlags>(&*_io, Some(self_rc._root.clone()), Some(self_rc._self.clone()))?.into();
