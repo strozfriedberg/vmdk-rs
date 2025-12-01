@@ -154,10 +154,13 @@ fn read_extent<T: AsRef<Path>>(
     let file = File::open(&ed_fn)?;
     let filename = ed_fn.to_string_lossy().to_string();
 
+    let src_1 = File::open(&ed_fn)?;
+    let src_2 = File::open(&ed_fn)?;
+
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let mut header = open_header(&ed_fn)?;
+            let mut header = open_header(src_1, src_2)?;
             let has_compressed_grain = header.has_compressed_grain;
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;

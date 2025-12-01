@@ -87,7 +87,7 @@ fn try_vmware_vmdk_header(
     Ok(hdr)
 }
 
-pub fn open_header_impl<T: Read + Seek + 'static>(
+pub fn open_header<T: Read + Seek + 'static>(
     mut src_1: T,
     src_2: T
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
@@ -116,24 +116,14 @@ pub fn open_header_impl<T: Read + Seek + 'static>(
     }
 }
 
-pub fn open_header<T: AsRef<Path>>(
-    image_path: T
-) -> Result<VmdkSparseFileHeader, OpenError>
-{
-    let mut src_1 = File::open(&image_path)
-        .map_err(IoError::from)?;    
-
-    let mut src_2 = File::open(&image_path)
-        .map_err(IoError::from)?;    
-
-    open_header_impl(src_1, src_2)
-        .map_err(OpenError::from)
-        .map_err(|e| e.with_path(&image_path))
-}
-
 pub fn read_descriptor_from_header<T: AsRef<Path>>(
     image_path: T
 ) -> Result<String, OpenError>
 {
-    open_header(image_path).map(|h| h.descriptor)
+   let src_1 = File::open(image_path.as_ref())?;
+   let src_2 = File::open(image_path.as_ref())?;
+
+    open_header(src_1, src_2)
+        .map(|h| h.descriptor)
+        .map_err(OpenError::from)
 }
