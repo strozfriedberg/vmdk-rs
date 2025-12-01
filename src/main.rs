@@ -9,7 +9,7 @@ struct Cli {
 }
 
 fn do_hash(vmdk_path: &str) -> String /*hash*/ {
-    let vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
+    let mut vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
     let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];
     let mut offset = 0;

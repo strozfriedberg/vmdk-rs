@@ -2,12 +2,12 @@ use rand::Rng;
 use sha1::{Digest, Sha1};
 
 pub fn do_hash<RF>(
-    reader: RF,
+    mut reader: RF,
     image_size: u64,
     random_buf_size: bool
 ) -> String
 where
-    RF: Fn(u64, &mut [u8]) -> usize
+    RF: FnMut(u64, &mut [u8]) -> usize
 {
     let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];

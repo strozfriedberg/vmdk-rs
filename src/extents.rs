@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
@@ -25,7 +24,7 @@ sector_start = 8323072, sectors = 2162688
 
 #[derive(Debug)]
 pub struct SparseStorage {
-    pub file: RefCell<File>,
+    pub file: File,
     pub filename: String,
     pub grain_table: HashMap<u64 /*sector*/, u64 /*real sector in file*/>,
     // size size_grain * 512
@@ -36,7 +35,7 @@ pub struct SparseStorage {
 
 #[derive(Debug)]
 pub struct FlatStorage {
-    pub file: RefCell<File>,
+    pub file: File,
     pub filename: String,
     pub offset: u64
 }
@@ -151,7 +150,7 @@ fn read_extent<T: AsRef<Path>>(
         ed_fn = image_path.as_ref().to_path_buf();
     }
 
-    let file = RefCell::new(File::open(&ed_fn)?);
+    let file = File::open(&ed_fn)?;
     let filename = ed_fn.to_string_lossy().to_string();
 
     Ok(match &ed.kind {

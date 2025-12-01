@@ -25,7 +25,8 @@ mod test {
 
     #[track_caller]
     fn assert_eq_test_data(exp: &TestData) {
-        let reader = VmdkReader::open(exp.image_path).unwrap();
+        let mut reader = VmdkReader::open(exp.image_path).unwrap();
+        let image_size = reader.image_size;
 
         let sha1 = do_hash(
             |offset, buf: &mut [u8]| {
@@ -33,7 +34,7 @@ mod test {
                 reader.read_at_offset(offset, &mut buf[..buf_len])
                     .unwrap()
             },
-            reader.image_size,
+            image_size,
             false
         );
 

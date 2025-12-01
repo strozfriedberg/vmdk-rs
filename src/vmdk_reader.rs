@@ -89,9 +89,9 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
 }
 
 fn extent_for_offset(
-    extents: &[Extent],
+    extents: &mut [Extent],
     offset: u64
-) -> Option<&Extent> {
+) -> Option<&mut Extent> {
     let sector = offset / 512;
     let i = extents.partition_point(|ex| ex.start_sector <= sector);
 
@@ -99,7 +99,7 @@ fn extent_for_offset(
         // offset before first extent
         0 => None,
         // offset is in extent i-1
-        i if sector < extents[i-1].start_sector + extents[i-1].sectors => Some(&extents[i-1]),
+        i if sector < extents[i-1].start_sector + extents[i-1].sectors => Some(&mut extents[i-1]),
         // offset is in a gap between extents i-1 and i
         _ => None
     }
@@ -190,7 +190,7 @@ impl VmdkReader {
     }
 
     pub fn read_at_offset(
-        &self,
+        &mut self,
         mut offset: u64,
         buf: &mut [u8]
     ) -> Result<usize, ReadError>
@@ -204,8 +204,9 @@ impl VmdkReader {
         let mut eof = false;
 
         while bytes_read < buf.len() && !eof {
-            for (ex_pos, ex) in self.extents.iter().enumerate() {
-                let Some(extent) = extent_for_offset(ex, offset) else {
+            let ex_len = self.extents.len();
+            for (ex_pos, mut ex) in self.extents.iter_mut().enumerate() {
+                let Some(ref mut extent) = extent_for_offset(&mut ex, offset) else {
                     eof = true;
                     break;
                 };
@@ -216,8 +217,8 @@ impl VmdkReader {
                 let remaining_size = remaining_buf.len();
                 let remaining_grain_size;
 
-                match &extent.storage {
-                    ExtentStorage::Sparse(storage) => {
+                match &mut extent.storage {
+                    ExtentStorage::Sparse(ref mut storage) => {
                         grain_size = storage.grain_size * SECTOR_SIZE;
 
                         remaining_grain_size = if grain_size > 0 {
@@ -234,7 +235,7 @@ impl VmdkReader {
                         match storage.grain_table.get(&grain_index) {
                             None => {
                                 // if this is last vmdk-file
-                                if ex_pos == self.extents.len() - 1 {
+                                if ex_pos == ex_len - 1 {
                                     remaining_buf[..remaining_grain_size].fill(0);
                                 }
                                 else {
@@ -250,15 +251,14 @@ impl VmdkReader {
                                 else {
                                     let seek_pos = *sector_num * SECTOR_SIZE;
                                     storage.file
-                                        .borrow_mut()
                                         .seek(SeekFrom::Start(seek_pos))?;
                                     let grain_data = if storage.has_compressed_grain {
-                                        read_and_decompress_grain(&mut storage.file.borrow_mut(), grain_index)?
+                                        read_and_decompress_grain(&mut storage.file, grain_index)?
                                     }
                                     else {
                                         // calculate real sector and read whole grain
                                         let mut data = vec![0u8; grain_size as usize];
-                                        storage.file.borrow_mut().read_exact(&mut data)?;
+                                        storage.file.read_exact(&mut data)?;
                                         data
                                     };
                                     remaining_buf[..remaining_grain_size].clone_from_slice(
@@ -279,7 +279,7 @@ impl VmdkReader {
 
                         // FLAT, VMFS
 
-                        let mut f = storage.file.borrow_mut();
+                        let mut f = &storage.file;
 
                         // NB: only ExtentKind::Flat has nonzero offset
                         f.seek(SeekFrom::Start(local_offset + storage.offset))?;
@@ -305,7 +305,7 @@ mod test {
 
     #[test]
     fn test_extent_for_offset() {
-        let exts = [
+        let mut exts = [
             Extent {
                 start_sector: 0,
                 sectors: 10,
@@ -325,7 +325,7 @@ mod test {
 
         // start of 0
         assert!(matches!(
-            extent_for_offset(&exts, 0),
+            extent_for_offset(&mut exts, 0),
             Some(
                 Extent {
                     start_sector: 0,
@@ -337,7 +337,7 @@ mod test {
 
         // end of 0
         assert!(matches!(
-            extent_for_offset(&exts, 9 * 512),
+            extent_for_offset(&mut exts, 9 * 512),
             Some(
                 Extent {
                     start_sector: 0,
@@ -349,7 +349,7 @@ mod test {
 
         // start of 1
         assert!(matches!(
-            extent_for_offset(&exts, 10 * 512),
+            extent_for_offset(&mut exts, 10 * 512),
             Some(
                 Extent {
                     start_sector: 10,
@@ -361,7 +361,7 @@ mod test {
 
         // end of 1
         assert!(matches!(
-            extent_for_offset(&exts, 14 * 512),
+            extent_for_offset(&mut exts, 14 * 512),
             Some(
                 Extent {
                     start_sector: 10,
@@ -373,7 +373,7 @@ mod test {
 
         // start of 2
         assert!(matches!(
-            extent_for_offset(&exts, 15 * 512),
+            extent_for_offset(&mut exts, 15 * 512),
             Some(
                 Extent {
                     start_sector: 15,
@@ -385,7 +385,7 @@ mod test {
 
         // end of 2
         assert!(matches!(
-            extent_for_offset(&exts, 19 * 512),
+            extent_for_offset(&mut exts, 19 * 512),
             Some(
                 Extent {
                     start_sector: 15,
@@ -397,7 +397,7 @@ mod test {
 
         // past the end
         assert!(matches!(
-            extent_for_offset(&exts, 20 * 512),
+            extent_for_offset(&mut exts, 20 * 512),
             None
         ));
     }
