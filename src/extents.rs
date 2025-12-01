@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     fs::{self, File},
+    io::{Read, Seek, SeekFrom},
     path::Path
 };
 
@@ -56,7 +57,7 @@ pub struct Extent {
 }
 
 fn read_grain_table(
-    h: &VmdkSparseFileHeader,
+    h: &mut VmdkSparseFileHeader,
     kind: ExtentKind
 ) -> Result<(HashMap<u64, u64>, u64), IoError> {
     let size_grain_bytes = h.size_grain * 512;
@@ -77,15 +78,15 @@ fn read_grain_table(
     let mut grain_table_start_index = 0;
 
     // get and read metadata-0
-    h.io.seek(h.grain_dir as usize * 512)
-        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
+    h.io.seek(SeekFrom::Start(h.grain_dir * 512))?;
+//        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
 
-    let grain_dir_entries: Vec<u64> =
-        h.io.read_bytes(number_of_grain_directory_entries as usize * 4)
-            .map_err(IoError::ReadError)?
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
-            .collect();
+    let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
+    h.io.read_exact(&mut buf)?;
+
+    let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
+        .collect();
 
     // get and read metadata-1
     for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
@@ -108,15 +109,14 @@ fn read_grain_table(
             continue;
         }
 
-        h.io.seek(*grain_table_offset as usize)
-            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
+        h.io.seek(SeekFrom::Start(*grain_table_offset))?;
+//            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
+        let mut buf = vec![0; grain_table1_elems * 4]; 
+        h.io.read_exact(&mut buf)?;
 
-        let grain_table: Vec<u64> =
-            h.io.read_bytes(grain_table1_elems * 4)
-                .map_err(IoError::ReadError)?
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
-                .collect();
+        let grain_table: Vec<u64> = buf.chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
+            .collect();
 
         for (i, grain) in grain_table.iter().enumerate() {
             if *grain == 0 {
@@ -158,13 +158,13 @@ fn read_extent<T: AsRef<Path>>(
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let header = open_header(&ed_fn)?;
+            let mut header = open_header(&ed_fn)?;
             let has_compressed_grain = header.has_compressed_grain;
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;
 
             let (grain_table, grain_table_start_index) = read_grain_table(
-                &header,
+                &mut header,
                 (&ed.kind).into(),
             )?;
 

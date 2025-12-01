@@ -1,5 +1,7 @@
-use kaitai::{BytesReader, KStream, KStruct};
+use kaitai::{BytesReader, KStream, KStruct, ReadSeek};
 use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom},
     path::Path,
     ops::Deref
 };
@@ -10,7 +12,7 @@ use crate::generated::vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods};
 
 #[derive(Debug)]
 pub struct VmdkSparseFileHeader {
-    pub io: BytesReader,
+    pub io: Box<dyn ReadSeek>,
     pub size_max: u64,
     pub size_grain: u64,
     pub grain_dir: u64,
@@ -21,12 +23,13 @@ pub struct VmdkSparseFileHeader {
 }
 
 fn try_vmware_cowd_header(
-    io: BytesReader
+    io: BytesReader,
+    src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileHeader, DeserializationError>
 {
     match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
         Ok(h) => Ok(VmdkSparseFileHeader {
-            io,
+            io: src,
             size_max: *h.size_max() as u64,
             size_grain: *h.size_grain() as u64,
             grain_dir: *h.grain_dir() as u64,
@@ -40,10 +43,11 @@ fn try_vmware_cowd_header(
 }
 
 fn try_vmware_vmdk_header(
-    io: BytesReader
+    io: BytesReader,
+    src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-     let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
+    let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
         .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
 
     if *h.start_primary_grain() == -1
@@ -70,7 +74,7 @@ fn try_vmware_vmdk_header(
     let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
 
     let hdr = VmdkSparseFileHeader {
-        io,
+        io: src,
         size_max: *h.size_max() as u64,
         size_grain: *h.size_grain() as u64,
         grain_dir,
@@ -87,20 +91,30 @@ pub fn open_header_impl<T: AsRef<Path>>(
     image_path: T
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-    let io = BytesReader::open(&image_path)?;
+    let mut src = File::open(&image_path)
+        .map_err(IoError::from)?;    
 
-    let first_bytes = io
-        .read_bytes(4)
-        .map_err(|e| IoError::SeekError(4, e))?;
+    let mut first_bytes = [0; 4];
 
-    io.seek(0)
-        .map_err(|e| IoError::SeekError(4, e))?;
+    src.read_exact(&mut first_bytes)
+        .map_err(IoError::from)?;
+//        .map_err(|e| IoError::SeekError(4, e))?;
+
+    src.seek(SeekFrom::Start(0))
+        .map_err(IoError::from)?;
+//        .map_err(|e| IoError::SeekError(4, e))?;
+
+    let rs = Box::new(src) as Box<dyn ReadSeek>;
+    let io = BytesReader::try_from(rs)?;
+
+    let src = Box::new(File::open(&image_path)
+        .map_err(IoError::from)?) as Box<dyn ReadSeek>;
 
     match first_bytes.as_slice() {
         // COWD
-        [0x43u8, 0x4Fu8, 0x57u8, 0x44u8] => Ok(try_vmware_cowd_header(io)?),
+        [0x43u8, 0x4Fu8, 0x57u8, 0x44u8] => Ok(try_vmware_cowd_header(io, src)?),
         // KDMV
-        [0x4Bu8, 0x44u8, 0x4Du8, 0x56u8] => Ok(try_vmware_vmdk_header(io)?),
+        [0x4Bu8, 0x44u8, 0x4Du8, 0x56u8] => Ok(try_vmware_vmdk_header(io, src)?),
         _ => Err(OpenErrorKind::InvalidFileHeader)
     }
 }
