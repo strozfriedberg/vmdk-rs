@@ -23,12 +23,14 @@ capi = []
 async-trait = "0.1.89"
 byteorder = "1.5"
 clap = { version = "4.1.7", features = ["derive"] }
-kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
+flate2 = "1"
+#kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
+kaitai = { git = "https://github.com/uckelman-sf/kaitai_struct_rust_runtime.git", branch = "master" }
+once_cell = "1.21.3"
 regex = "1"
 sha-1 = "^0.10"
-flate2 = "1"
-once_cell = "1.21.3"
 thiserror = "2.0.12"
+tracing = "0.1.41"
 
 [dev-dependencies]
 rand = "0.9"
