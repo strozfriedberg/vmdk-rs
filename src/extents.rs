@@ -1,3 +1,4 @@
+use kaitai::ReadSeek;
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -24,7 +25,7 @@ sector_start = 8323072, sectors = 2162688
 
 #[derive(Debug)]
 pub struct SparseStorage {
-    pub file: File,
+    pub file: Box<dyn ReadSeek>,
     pub filename: String,
     pub grain_table: HashMap<u64 /*sector*/, u64 /*real sector in file*/>,
     // size size_grain * 512
@@ -35,7 +36,7 @@ pub struct SparseStorage {
 
 #[derive(Debug)]
 pub struct FlatStorage {
-    pub file: File,
+    pub file: Box<dyn ReadSeek>,
     pub filename: String,
     pub offset: u64
 }
@@ -167,7 +168,7 @@ fn read_extent<T: AsRef<Path>>(
             )?;
 
             ExtentStorage::Sparse(SparseStorage {
-                file,
+                file: Box::new(file) as Box<dyn ReadSeek>,
                 filename,
                 grain_table,
                 grain_size,
@@ -177,14 +178,14 @@ fn read_extent<T: AsRef<Path>>(
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file,
+                file: Box::new(file) as Box<dyn ReadSeek>,
                 filename,
                 offset: 0
             })
         },
         ExtentDescriptionInner::Flat { offset, .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file,
+                file: Box::new(file) as Box<dyn ReadSeek>,
                 filename,
                 offset: *offset
             })

@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
+use kaitai::ReadSeek;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
@@ -111,7 +112,7 @@ fn extent_for_offset(
 struct CrazyGrainIndex(u64);
 
 fn read_and_decompress_grain(
-    file: &mut File,
+    file: &mut Box<dyn ReadSeek>,
     grain_index: u64,
 ) -> std::io::Result<Vec<u8>> {
 
@@ -279,7 +280,7 @@ impl VmdkReader {
 
                         // FLAT, VMFS
 
-                        let mut f = &storage.file;
+                        let mut f = &mut storage.file;
 
                         // NB: only ExtentKind::Flat has nonzero offset
                         f.seek(SeekFrom::Start(local_offset + storage.offset))?;
