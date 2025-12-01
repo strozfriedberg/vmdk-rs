@@ -1,4 +1,3 @@
-use kaitai::KStream;
 use std::{
     cell::RefCell,
     collections::HashMap,
