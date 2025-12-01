@@ -87,28 +87,25 @@ fn try_vmware_vmdk_header(
     Ok(hdr)
 }
 
-pub fn open_header_impl<T: AsRef<Path>>(
-    image_path: T
+pub fn open_header_impl<T: Read + Seek + 'static>(
+    mut src_1: T,
+    src_2: T
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-    let mut src = File::open(&image_path)
-        .map_err(IoError::from)?;    
-
     let mut first_bytes = [0; 4];
 
-    src.read_exact(&mut first_bytes)
+    src_1.read_exact(&mut first_bytes)
         .map_err(IoError::from)?;
 //        .map_err(|e| IoError::SeekError(4, e))?;
 
-    src.seek(SeekFrom::Start(0))
+    src_1.seek(SeekFrom::Start(0))
         .map_err(IoError::from)?;
 //        .map_err(|e| IoError::SeekError(4, e))?;
 
-    let rs = Box::new(src) as Box<dyn ReadSeek>;
+    let rs = Box::new(src_2) as Box<dyn ReadSeek>;
     let io = BytesReader::try_from(rs)?;
 
-    let src = Box::new(File::open(&image_path)
-        .map_err(IoError::from)?) as Box<dyn ReadSeek>;
+    let src = Box::new(src_1) as Box<dyn ReadSeek>;
 
     match first_bytes.as_slice() {
         // COWD
@@ -123,7 +120,20 @@ pub fn open_header<T: AsRef<Path>>(
     image_path: T
 ) -> Result<VmdkSparseFileHeader, OpenError>
 {
-    open_header_impl(&image_path)
+    let mut src_1 = File::open(&image_path)
+        .map_err(IoError::from)?;    
+
+    let mut src_2 = File::open(&image_path)
+        .map_err(IoError::from)?;    
+
+    open_header_impl(src_1, src_2)
         .map_err(OpenError::from)
         .map_err(|e| e.with_path(&image_path))
+}
+
+pub fn read_descriptor_from_header<T: AsRef<Path>>(
+    image_path: T
+) -> Result<String, OpenError>
+{
+    open_header(image_path).map(|h| h.descriptor)
 }

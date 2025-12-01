@@ -13,7 +13,7 @@ extern crate kaitai;
 
 use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
 use crate::extents::{Extent, ExtentStorage, read_extents};
-use crate::header::open_header;
+use crate::header::read_descriptor_from_header;
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -37,8 +37,8 @@ fn read_descriptor<T: AsRef<Path>>(
 ) -> Result<(String, bool), OpenError>
 {
 // FIXME: don't swallow errors from open_bin
-    match open_header(&image_path) {
-        Ok(header) => Ok((header.descriptor, true)),
+    match read_descriptor_from_header(&image_path) {
+        Ok(desc) => Ok((desc, true)),
         Err(_) => {
             // maybe this is a raw descriptor file
             let f = File::open(&image_path)
@@ -70,7 +70,6 @@ fn read_descriptor<T: AsRef<Path>>(
                     .map_err(|e| e.with_path(&image_path))?,
                 false
             ))
-
         }
     }
 }
@@ -280,7 +279,7 @@ impl VmdkReader {
 
                         // FLAT, VMFS
 
-                        let mut f = &mut storage.file;
+                        let f = &mut storage.file;
 
                         // NB: only ExtentKind::Flat has nonzero offset
                         f.seek(SeekFrom::Start(local_offset + storage.offset))?;

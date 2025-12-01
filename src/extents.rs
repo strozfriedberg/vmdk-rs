@@ -6,13 +6,13 @@ use std::{
     path::Path
 };
 
+use crate::errors::{DescriptorError, IoError, OpenError};
 use crate::extent_description::{
     ExtentDescription,
     ExtentDescriptionInner,
     ExtentKind,
     extract_extent_descriptions
 };
-use crate::errors::{DescriptorError, IoError, OpenError};
 use crate::header::{VmdkSparseFileHeader, open_header};
 
 /*
