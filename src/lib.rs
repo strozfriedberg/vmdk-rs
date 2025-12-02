@@ -20,6 +20,7 @@ mod filesource;
 mod generated;
 mod header;
 mod placeholdersource;
+mod s3source;
 
 #[cfg(test)]
 mod test {

@@ -1,5 +1,11 @@
 use clap::Parser;
 use sha1::{Digest, Sha1};
+use tracing_subscriber::{
+    EnvFilter,
+    layer::SubscriberExt,
+    util::SubscriberInitExt
+};
+
 use vmdkrs::vmdk_reader::VmdkReader;
 
 #[derive(Parser)]
@@ -35,6 +41,31 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
 }
 
 fn main() {
+    let stderr_layer = tracing_subscriber::fmt::layer()
+//        .with_current_span(true)
+        .without_time()
+        .with_file(false)
+        .with_line_number(false)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+//        .with_target(false)
+        .with_writer(std::io::stderr);
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| {
+                [
+                    // log at info by default
+                    "info",
+                    // foyer is noisy below warn level
+                    "foyer_memory=warn",
+                    "foyer_storage=warn"
+                ].join(",").into()
+            })
+        )
+        .with(stderr_layer)
+        .init();
+
     let cli = Cli::parse();
     let vmdk_paths: Vec<&str> = cli.vmdk_paths.iter().map(String::as_str).collect();
     for s in vmdk_paths {

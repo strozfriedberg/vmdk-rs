@@ -3,6 +3,11 @@ use flate2::read::DeflateDecoder;
 use kaitai::ReadSeek;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use s3::{
+    bucket::Bucket,
+    creds::Credentials,
+    region::Region
+};
 use std::{
     fmt::Debug,
     fs::{self, File},
@@ -11,6 +16,7 @@ use std::{
     sync::{Arc, Mutex}
 };
 use tokio::runtime::Runtime;
+use tracing::debug;
 use url::Url;
 
 extern crate kaitai;
@@ -23,7 +29,8 @@ use crate::{
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
-    header::read_descriptor_from_header
+    header::read_descriptor_from_header,
+    s3source::S3Source
 };
 
 const SECTOR_SIZE: u64 = 512;
@@ -207,7 +214,6 @@ pub fn source_for<P: AsRef<str>>(
 
             Ok(Box::new(FileSource { path: p.into(), len }))
         },
-/*
         "s3" => {
             let name = url.host_str()
                 .ok_or(OpenErrorKind::BadPath(p.into()))?;
@@ -234,7 +240,6 @@ pub fn source_for<P: AsRef<str>>(
 
             Ok(Box::new(S3Source::new(bucket, key.into(), len)))
         },
-*/
         _ => Err(OpenErrorKind::UnsupportedScheme(p.into()).into())
     }
 }
