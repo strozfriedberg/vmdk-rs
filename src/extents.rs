@@ -131,31 +131,18 @@ fn read_grain_table(
     Ok((grain_table_all, grain_table_start_index))
 }
 
-fn read_extent<T: AsRef<Path>>(
+fn read_extent<T, F>(
     ed: &ExtentDescription,
-    image_path: T,
-    is_bin_and_singular: bool
+    filename: F,
+    src_1: T,
+    src_2: T,
+    src_3: T
 ) -> Result<ExtentStorage, OpenError>
+where
+    T: Read + Seek + 'static,
+    F: Into<String>
 {
-    let filename = match &ed.kind {
-        ExtentDescriptionInner::Sparse { filename } |
-        ExtentDescriptionInner::Flat { filename, .. } |
-        ExtentDescriptionInner::Vmfs { filename } |
-        ExtentDescriptionInner::VmfsSparse { filename } => filename,
-        _ => todo!("TODO: {:?} support", ed.kind)
-    };
-
-    let mut ed_fn = image_path.as_ref().with_file_name(filename);
-    if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
-        // if 1st filename is wrong and we are bin - try to use current file
-        ed_fn = image_path.as_ref().to_path_buf();
-    }
-
-    let file = File::open(&ed_fn)?;
-    let filename = ed_fn.to_string_lossy().to_string();
-
-    let src_1 = File::open(&ed_fn)?;
-    let src_2 = File::open(&ed_fn)?;
+    let filename = filename.into();
 
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
@@ -171,7 +158,7 @@ fn read_extent<T: AsRef<Path>>(
             )?;
 
             ExtentStorage::Sparse(SparseStorage {
-                file: Box::new(file) as Box<dyn ReadSeek>,
+                file: Box::new(src_3) as Box<dyn ReadSeek>,
                 filename,
                 grain_table,
                 grain_size,
@@ -181,20 +168,30 @@ fn read_extent<T: AsRef<Path>>(
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file: Box::new(file) as Box<dyn ReadSeek>,
+                file: Box::new(src_3) as Box<dyn ReadSeek>,
                 filename,
                 offset: 0
             })
         },
         ExtentDescriptionInner::Flat { offset, .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file: Box::new(file) as Box<dyn ReadSeek>,
+                file: Box::new(src_3) as Box<dyn ReadSeek>,
                 filename,
                 offset: *offset
             })
         },
         _ => todo!("TODO: {:?} support", ed.kind)
     })
+}
+
+fn filename_from_ed(ed: &ExtentDescription) -> &str {
+    match &ed.kind {
+        ExtentDescriptionInner::Sparse { filename } |
+        ExtentDescriptionInner::Flat { filename, .. } |
+        ExtentDescriptionInner::Vmfs { filename } |
+        ExtentDescriptionInner::VmfsSparse { filename } => &filename,
+        _ => todo!("TODO: {:?} support", ed.kind)
+    }
 }
 
 fn read_extents_impl<T: AsRef<Path>>(
@@ -209,11 +206,30 @@ fn read_extents_impl<T: AsRef<Path>>(
 
     let mut extents = vec![];
 
-    for i in eds {
+    for ed in eds {
+        let filename = filename_from_ed(&ed);
+        let mut ed_fn = image_path.as_ref().with_file_name(filename);
+        if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
+            // if first filename is wrong and we are bin, try current file
+            ed_fn = image_path.as_ref().to_path_buf();
+        }
+
+        let filename = ed_fn.to_string_lossy().to_string();
+
+        let src_1 = File::open(&ed_fn)?;
+        let src_2 = File::open(&ed_fn)?;
+        let src_3 = File::open(&ed_fn)?;
+
         extents.push(Extent {
-            sectors: i.sectors,
+            sectors: ed.sectors,
             start_sector: 0,
-            storage: read_extent(&i, &image_path, is_bin_and_singular)?
+            storage: read_extent(
+                &ed,
+                &filename,
+                src_1,
+                src_2,
+                src_3
+            )?
         });
     }
 
@@ -235,6 +251,4 @@ pub fn read_extents<T: AsRef<Path>>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
 }
