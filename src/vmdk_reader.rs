@@ -11,13 +11,17 @@ use std::{
     sync::{Arc, Mutex}
 };
 use tokio::runtime::Runtime;
+use url::Url;
 
 extern crate kaitai;
 
 use crate::{
+    bytessource::BytesSource,
     cache::Cache,
+    cachereadseek::CacheReadSeek,
     dummycache::DummyCache,
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
+    filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
     header::read_descriptor_from_header
 };
@@ -51,12 +55,16 @@ pub enum ReadError {
     IoError(#[from] io::Error)
 }
 
-fn read_descriptor<T: AsRef<Path>>(
-    image_path: T
+fn read_descriptor<T, S>(
+    image_path: T,
+    src: S
 ) -> Result<(String, bool), OpenError>
+where
+    T: AsRef<Path>,
+    S: Read + Seek + Clone + 'static
 {
 // FIXME: don't swallow errors from open_bin
-    match read_descriptor_from_header(&image_path) {
+    match read_descriptor_from_header(src) {
         Ok(desc) => Ok((desc, true)),
         Err(_) => {
             // maybe this is a raw descriptor file
@@ -165,6 +173,72 @@ fn read_and_decompress_grain(
     Ok(decoded_data)
 }
 
+fn path_or_url_to_url<P: AsRef<str>>(p: P) -> Option<Url> {
+    match Url::parse(p.as_ref()) {
+        // might be a path; make it absolute and reparse
+        Err(url::ParseError::RelativeUrlWithoutBase) => Path::new(p.as_ref())
+            .canonicalize()
+            .map(Url::from_file_path)
+            .map_err(|_| ())
+// FIXME: use flatten after Rust 1.89
+//            .flatten()
+            .and_then(|r| r)
+            .ok(),
+        r => r.ok()
+    }
+}
+
+pub fn source_for<P: AsRef<str>>(
+    p: P,
+    runtime: &Runtime
+) -> Result<Box<dyn BytesSource + Send>, OpenError>
+{
+    let p = p.as_ref();
+
+    let url = path_or_url_to_url(p)
+        .ok_or(OpenErrorKind::BadPath(p.into()))?;
+
+    match url.scheme() {
+        "file" => {
+            let len = std::fs::metadata(p)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(p))?
+                .len();
+
+            Ok(Box::new(FileSource { path: p.into(), len }))
+        },
+/*
+        "s3" => {
+            let name = url.host_str()
+                .ok_or(OpenErrorKind::BadPath(p.into()))?;
+
+            let bucket = *Bucket::new(
+                name,
+                Region::UsEast1,
+                Credentials::anonymous().unwrap()
+            )
+            .map_err(std::io::Error::other)
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(p))?;
+
+            let key = url.path();
+
+            let (h, code) = runtime.block_on(bucket.head_object(key))
+                .map_err(std::io::Error::other)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(p))?;
+
+            assert_eq!(code, 200);
+            let len = h.content_length.unwrap().try_into().unwrap();
+            debug!("content-length: {len}");
+
+            Ok(Box::new(S3Source::new(bucket, key.into(), len)))
+        },
+*/
+        _ => Err(OpenErrorKind::UnsupportedScheme(p.into()).into())
+    }
+}
+
 impl VmdkReader {
     pub fn open<T: AsRef<Path>>(
         image_path: T
@@ -184,9 +258,29 @@ impl VmdkReader {
 
         let cache = Arc::new(Mutex::new(c));
 
+        let mut idx = 0;
+
         loop {
-            let (descriptor, is_bin) = read_descriptor(&current_fn)?;
-            let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
+            // FIXME
+            let current_fn_str = current_fn.to_str()
+                .ok_or_else(|| OpenErrorKind::BadPath("".into()))?;
+
+            let src = source_for(current_fn_str, &runtime)?;
+            let seg_len = src.end(); 
+
+            cache.lock().unwrap().add_source(idx, src);
+
+            let crs = CacheReadSeek::new(
+                cache.clone(),
+                runtime.clone(),
+                idx,
+                seg_len
+            );
+
+//            let (descriptor, is_bin) = read_descriptor(&current_fn)?;
+            let (descriptor, is_bin) = read_descriptor(&current_fn, crs)?;
+//            let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
+            let extents0 = read_extents(&current_fn, &descriptor, is_bin, cache.clone(), runtime.clone(), idx)?;
 
             let total_size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
             if total_size == 0 {
@@ -201,6 +295,7 @@ impl VmdkReader {
                 });
             }
 
+            idx += extents0.len();
             extents.push(extents0);
 
             if let Some(next_fn) = extract_parent_fn_hint(&descriptor) {

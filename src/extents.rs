@@ -3,17 +3,24 @@ use std::{
     collections::HashMap,
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
-    path::Path
+    path::Path,
+    sync::{Arc, Mutex}
 };
+use tokio::runtime::Runtime;
 
-use crate::errors::{DescriptorError, IoError, OpenError};
-use crate::extent_description::{
-    ExtentDescription,
-    ExtentDescriptionInner,
-    ExtentKind,
-    extract_extent_descriptions
+use crate::{
+    cache::Cache,
+    cachereadseek::CacheReadSeek,
+    errors::{DescriptorError, IoError, OpenError},
+    extent_description::{
+        ExtentDescription,
+        ExtentDescriptionInner,
+        ExtentKind,
+        extract_extent_descriptions
+    },
+    header::{VmdkSparseFileHeader, open_header},
+    vmdk_reader::source_for
 };
-use crate::header::{VmdkSparseFileHeader, open_header};
 
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
@@ -134,12 +141,10 @@ fn read_grain_table(
 fn read_extent<T, F>(
     ed: &ExtentDescription,
     filename: F,
-    src_1: T,
-    src_2: T,
-    src_3: T
+    src: T
 ) -> Result<ExtentStorage, OpenError>
 where
-    T: Read + Seek + 'static,
+    T: Read + Seek + Clone + 'static,
     F: Into<String>
 {
     let filename = filename.into();
@@ -147,7 +152,7 @@ where
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let mut header = open_header(src_1, src_2)?;
+            let mut header = open_header(src.clone())?;
             let has_compressed_grain = header.has_compressed_grain;
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;
@@ -158,7 +163,7 @@ where
             )?;
 
             ExtentStorage::Sparse(SparseStorage {
-                file: Box::new(src_3) as Box<dyn ReadSeek>,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 grain_table,
                 grain_size,
@@ -168,14 +173,14 @@ where
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file: Box::new(src_3) as Box<dyn ReadSeek>,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 offset: 0
             })
         },
         ExtentDescriptionInner::Flat { offset, .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file: Box::new(src_3) as Box<dyn ReadSeek>,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 offset: *offset
             })
@@ -197,7 +202,10 @@ fn filename_from_ed(ed: &ExtentDescription) -> &str {
 fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
-    is_bin: bool
+    is_bin: bool,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>,
+    mut idx: usize
 ) -> Result<Vec<Extent>, OpenError> {
     let eds = extract_extent_descriptions(descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
@@ -216,9 +224,17 @@ fn read_extents_impl<T: AsRef<Path>>(
 
         let filename = ed_fn.to_string_lossy().to_string();
 
-        let src_1 = File::open(&ed_fn)?;
-        let src_2 = File::open(&ed_fn)?;
-        let src_3 = File::open(&ed_fn)?;
+        let src = source_for(&filename, &runtime)?;
+        let seg_len = src.end(); 
+
+        cache.lock().unwrap().add_source(idx, src);
+
+        let crs = CacheReadSeek::new(
+            cache.clone(),
+            runtime.clone(),
+            idx,
+            seg_len
+        );
 
         extents.push(Extent {
             sectors: ed.sectors,
@@ -226,11 +242,11 @@ fn read_extents_impl<T: AsRef<Path>>(
             storage: read_extent(
                 &ed,
                 &filename,
-                src_1,
-                src_2,
-                src_3
+                crs
             )?
         });
+
+        idx += 1;
     }
 
     for i in 1..extents.len() {
@@ -243,9 +259,12 @@ fn read_extents_impl<T: AsRef<Path>>(
 pub fn read_extents<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
-    is_bin: bool
+    is_bin: bool,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>,
+    idx: usize
 ) -> Result<Vec<Extent>, OpenError> {
-    read_extents_impl(&image_path, descriptor, is_bin)
+    read_extents_impl(&image_path, descriptor, is_bin, cache, runtime, idx)
         .map_err(|e| e.with_path(&image_path))
 }
 
