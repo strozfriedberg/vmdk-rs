@@ -28,6 +28,14 @@ pub enum DescriptorError {
 pub struct DeserializationError(pub &'static str, pub KError);
 
 #[derive(Debug, thiserror::Error)]
+pub enum InitError {
+    #[error("Failed to start tokio Runtime: {0}")]
+    TokioRuntimeFailed(std::io::Error),
+    #[error("{0}")]
+    CacheSetupFailed(std::io::Error)
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum OpenErrorKind {
     #[error("{0}")]
     IoError(#[from] IoError),
@@ -38,7 +46,13 @@ pub enum OpenErrorKind {
     #[error("{0}")]
     DeserializationFailed(#[from] DeserializationError),
     #[error("No KDMV or COWD headers detected")]
-    InvalidFileHeader
+    InvalidFileHeader,
+    #[error("{0}")]
+    InitializationFailed(#[from] InitError),
+    #[error("Malformed path or URL: {0}")]
+    BadPath(String),
+    #[error("Unsupported URL scheme: {0}")]
+    UnsupportedScheme(String)
 }
 
 impl From<KError> for OpenErrorKind {

@@ -4,24 +4,43 @@ use kaitai::ReadSeek;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{
+    fmt::Debug,
     fs::{self, File},
     io::{self, BufReader, BufRead, Read, Seek, SeekFrom},
-    path::{Path, PathBuf}
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex}
 };
+use tokio::runtime::Runtime;
 
 extern crate kaitai;
 
-use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
-use crate::extents::{Extent, ExtentStorage, read_extents};
-use crate::header::read_descriptor_from_header;
+use crate::{
+    cache::Cache,
+    dummycache::DummyCache,
+    errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
+    extents::{Extent, ExtentStorage, read_extents},
+    header::read_descriptor_from_header
+};
 
 const SECTOR_SIZE: u64 = 512;
 
-#[derive(Debug)]
 pub struct VmdkReader {
     pub image_path: PathBuf,
     pub image_size: u64,
-    extents: Vec<Vec<Extent>>
+    extents: Vec<Vec<Extent>>,
+
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>
+}
+
+impl Debug for VmdkReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VmdkReader")
+            .field("image_path", &self.image_path)
+            .field("image_size", &self.image_size)
+            .field("extents", &self.extents)
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,6 +174,16 @@ impl VmdkReader {
         let mut extents = vec![];
         let mut current_fn = PathBuf::from(image_path.as_ref());
 
+        let runtime = Arc::new(
+            tokio::runtime::Runtime::new()
+                .map_err(InitError::TokioRuntimeFailed)
+                .map_err(OpenErrorKind::from)?
+        );
+
+        let c = DummyCache::new();
+
+        let cache = Arc::new(Mutex::new(c));
+
         loop {
             let (descriptor, is_bin) = read_descriptor(&current_fn)?;
             let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
@@ -186,6 +215,8 @@ impl VmdkReader {
             image_path: image_path.as_ref().into(),
             image_size: total_size,
             extents,
+            cache,
+            runtime
         })
     }
 

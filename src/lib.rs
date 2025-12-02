@@ -9,11 +9,17 @@ mod test_data;
 #[cfg(test)]
 mod test_helper;
 
+mod bytessource;
+mod cache;
+mod cachereadseek;
+mod dummycache;
 mod errors;
 mod extent_description;
 mod extents;
+mod filesource;
 mod generated;
 mod header;
+mod placeholdersource;
 
 #[cfg(test)]
 mod test {
