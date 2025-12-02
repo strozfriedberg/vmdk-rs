@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use tracing::trace;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AccessMode {
@@ -84,18 +85,22 @@ impl FromStr for ExtentDescriptionLine {
         let access_mode = tok.parse::<AccessMode>()
             .or(Err(ParseExtentDescriptionError))?;
 
+        trace!("{}", line!());
+
         // read the sector count
         let (tok, s) = s.trim_start().split_once(' ')
             .ok_or(ParseExtentDescriptionError)?;
         let sectors = tok.parse::<u64>()
             .or(Err(ParseExtentDescriptionError))?;
 
+        trace!("{}", line!());
         // read the extent kind
         let (tok, s) = s.trim_start().split_once(' ')
             .ok_or(ParseExtentDescriptionError)?;
         let kind = tok.parse::<ExtentKind>()
             .or(Err(ParseExtentDescriptionError))?;
 
+        trace!("{}", line!());
         // read the optional filename and offset
         let s = s.trim_start();
         let (filename, offset) = if s.is_empty() {
@@ -120,6 +125,7 @@ impl FromStr for ExtentDescriptionLine {
             (filename, offset)
         };
 
+        trace!("{}", line!());
         Ok(
             ExtentDescriptionLine {
                 access_mode,
@@ -181,6 +187,8 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
     type Error = ParseExtentDescriptionError;
 
     fn try_from(edl: ExtentDescriptionLine) -> Result<Self, Self::Error> {
+        trace!("{edl:?}");
+
         Ok(ExtentDescription {
             access_mode: edl.access_mode,
             sectors: edl.sectors,
@@ -200,7 +208,8 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                 ExtentDescriptionLine {
                     kind: ExtentKind::Sparse,
                     filename: Some(filename),
-                    offset: None,
+//                   offset: None,
+                   offset: None | Some(0),
                     ..
                 } => ExtentDescriptionInner::Sparse { filename },
                 ExtentDescriptionLine {
@@ -227,7 +236,10 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VmfsRaw { filename },
-                _ => return Err(ParseExtentDescriptionError)
+                _ => {
+                    trace!("{}", line!());
+                    return Err(ParseExtentDescriptionError);
+                }
             }
         })
     }
