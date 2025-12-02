@@ -13,7 +13,7 @@ name = "vmdkrs"
 path = "src/lib.rs"
 
 [[bin]]
-name = "reader"
+name = "vmdkverify"
 path = "src/main.rs"
 
 [features]
