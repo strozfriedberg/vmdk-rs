@@ -248,7 +248,7 @@ pub fn extract_extent_descriptions(
             Some((a, _)) if a.parse::<AccessMode>().is_ok() => {
                 eds.push(line.parse::<ExtentDescriptionLine>()?.try_into()?);
             },
-            _ => continue,
+            _ => continue
         }
     }
 
