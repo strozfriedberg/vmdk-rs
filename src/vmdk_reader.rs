@@ -282,9 +282,7 @@ impl VmdkReader {
                 seg_len
             );
 
-//            let (descriptor, is_bin) = read_descriptor(&current_fn)?;
             let (descriptor, is_bin) = read_descriptor(&current_fn, crs)?;
-//            let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
             let extents0 = read_extents(&current_fn, &descriptor, is_bin, cache.clone(), runtime.clone(), idx)?;
 
             let total_size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
