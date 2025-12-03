@@ -229,9 +229,7 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VmfsRaw { filename },
-                _ => {
-                    return Err(ParseExtentDescriptionError);
-                }
+                _ => return Err(ParseExtentDescriptionError)
             }
         })
     }
