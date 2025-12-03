@@ -71,19 +71,22 @@ fn try_vmware_vmdk_header(
     } as u64;
 
     let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
+    let size_max = *h.size_max() as u64;
+    let size_grain = *h.size_grain() as u64;
+    let num_grain_table_entries = *h.num_grain_table_entries() as u32;
+    let zeroed_grain_table_entry = *h.flags().zeroed_grain_table_entry();
+    let has_compressed_grain = *h.flags().has_compressed_grain();
 
-    let hdr = VmdkSparseFileHeader {
+    Ok(VmdkSparseFileHeader {
         src,
-        size_max: *h.size_max() as u64,
-        size_grain: *h.size_grain() as u64,
+        size_max,
+        size_grain,
         grain_dir,
-        num_grain_table_entries: *h.num_grain_table_entries() as u32,
-        zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
-        has_compressed_grain: *h.flags().has_compressed_grain(),
+        num_grain_table_entries,
+        zeroed_grain_table_entry,
+        has_compressed_grain,
         descriptor
-    };
-
-    Ok(hdr)
+    })
 }
 
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
