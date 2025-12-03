@@ -64,11 +64,11 @@ fn try_vmware_vmdk_header(
     }
 
     let grain_dir = if *h.flags().use_secondary_grain_dir() {
-        *h.start_secondary_grain() as u64
+        *h.start_secondary_grain()
     }
     else {
-        *h.start_primary_grain() as u64
-    };
+        *h.start_primary_grain()
+    } as u64;
 
     let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
 
