@@ -18,7 +18,7 @@ use crate::{
         ExtentKind,
         extract_extent_descriptions
     },
-    header::{VmdkSparseFileHeader, open_header},
+    header::{VmdkSparseFileHeader, read_header},
     vmdk_reader::source_for
 };
 
@@ -152,7 +152,7 @@ where
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let mut header = open_header(src.clone())?;
+            let mut header = read_header(src.clone())?;
             let has_compressed_grain = header.has_compressed_grain;
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;

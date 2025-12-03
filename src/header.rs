@@ -106,7 +106,7 @@ fn try_vmware_vmdk_header(
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
 const VMDK_SIGNATURE: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
 
-pub fn open_header<T: Read + Seek + Clone + 'static>(
+pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
@@ -136,7 +136,7 @@ pub fn read_descriptor_from_header<T: Read + Seek + Clone + 'static>(
     src: T
 ) -> Result<String, OpenError>
 {
-    open_header(src)
+    read_header(src)
         .map(|h| h.descriptor)
         .map_err(OpenError::from)
 }
