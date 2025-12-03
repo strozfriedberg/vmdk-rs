@@ -27,8 +27,8 @@ fn try_vmware_cowd_header(
     src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileHeader, DeserializationError>
 {
-    match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
-        Ok(h) => Ok(VmdkSparseFileHeader {
+    VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None)
+        .map(|h| VmdkSparseFileHeader {
             src,
             size_max: *h.size_max() as u64,
             size_grain: *h.size_grain() as u64,
@@ -37,9 +37,8 @@ fn try_vmware_cowd_header(
             zeroed_grain_table_entry: false,
             has_compressed_grain: false,
             descriptor: "".into(),
-        }),
-        Err(e) => Err(DeserializationError("VmwareCowd struct", e))
-    }
+        })
+        .map_err(|e| DeserializationError("VmwareCowd struct", e))
 }
 
 fn try_vmware_vmdk_header(
