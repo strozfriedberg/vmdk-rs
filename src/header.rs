@@ -1,4 +1,4 @@
-use kaitai::{BytesReader, KStream, KStruct, ReadSeek};
+use kaitai::{BytesReader, KError, KStream, KStruct, ReadSeek};
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
@@ -22,13 +22,9 @@ pub struct VmdkSparseFileHeader {
     pub descriptor: String,
 }
 
-fn try_vmware_cowd_header(
-    io: BytesReader,
-    src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileHeader, DeserializationError>
-{
-    VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None)
-        .map(|h| VmdkSparseFileHeader {
+impl From<(&VmwareCowd, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+    fn from((h, src): (&VmwareCowd, Box<dyn ReadSeek>)) -> Self {
+        Self {
             src,
             size_max: *h.size_max() as u64,
             size_grain: *h.size_grain() as u64,
@@ -37,7 +33,48 @@ fn try_vmware_cowd_header(
             zeroed_grain_table_entry: false,
             has_compressed_grain: false,
             descriptor: "".into(),
+        }
+    }
+}
+
+impl TryFrom<(&VmwareVmdk, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+    type Error = KError;
+
+    fn try_from(
+        (h, src): (&VmwareVmdk, Box<dyn ReadSeek>)
+    ) -> Result<Self, Self::Error>
+    {
+        let descriptor = String::from_utf8_lossy(
+            h.descriptor()?.deref()
+        ).into();
+
+        let grain_dir = if *h.flags().use_secondary_grain_dir() {
+            *h.start_secondary_grain()
+        }
+        else {
+            *h.start_primary_grain()
+        } as u64;
+
+        Ok(Self {
+            src,
+            size_max: *h.size_max() as u64,
+            size_grain: *h.size_grain() as u64,
+            grain_dir,
+            num_grain_table_entries: *h.num_grain_table_entries() as u32,
+            zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
+            has_compressed_grain: *h.flags().has_compressed_grain(),
+            descriptor
         })
+    }
+}
+
+fn try_vmware_cowd_header(
+    io: BytesReader,
+    src: Box<dyn ReadSeek>
+) -> Result<VmdkSparseFileHeader, DeserializationError>
+{
+    VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None)
+        .map(|h| VmdkSparseFileHeader::from((&*h, src)))
         .map_err(|e| DeserializationError("VmwareCowd struct", e))
 }
 
@@ -63,30 +100,7 @@ fn try_vmware_vmdk_header(
             .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
     }
 
-    let grain_dir = if *h.flags().use_secondary_grain_dir() {
-        *h.start_secondary_grain()
-    }
-    else {
-        *h.start_primary_grain()
-    } as u64;
-
-    let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
-    let size_max = *h.size_max() as u64;
-    let size_grain = *h.size_grain() as u64;
-    let num_grain_table_entries = *h.num_grain_table_entries() as u32;
-    let zeroed_grain_table_entry = *h.flags().zeroed_grain_table_entry();
-    let has_compressed_grain = *h.flags().has_compressed_grain();
-
-    Ok(VmdkSparseFileHeader {
-        src,
-        size_max,
-        size_grain,
-        grain_dir,
-        num_grain_table_entries,
-        zeroed_grain_table_entry,
-        has_compressed_grain,
-        descriptor
-    })
+    Ok((&*h, src).try_into()?)
 }
 
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
