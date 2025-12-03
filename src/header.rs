@@ -87,6 +87,9 @@ fn try_vmware_vmdk_header(
     Ok(hdr)
 }
 
+const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
+const VMDK_SIGNATURE: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
+
 pub fn open_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
@@ -106,11 +109,9 @@ pub fn open_header<T: Read + Seek + Clone + 'static>(
 
     let src = Box::new(src) as Box<dyn ReadSeek>;
 
-    match first_bytes.as_slice() {
-        // COWD
-        [0x43u8, 0x4Fu8, 0x57u8, 0x44u8] => Ok(try_vmware_cowd_header(io, src)?),
-        // KDMV
-        [0x4Bu8, 0x44u8, 0x4Du8, 0x56u8] => Ok(try_vmware_vmdk_header(io, src)?),
+    match first_bytes {
+        COWD_SIGNATURE => Ok(try_vmware_cowd_header(io, src)?),
+        VMDK_SIGNATURE => Ok(try_vmware_vmdk_header(io, src)?),
         _ => Err(OpenErrorKind::InvalidFileHeader)
     }
 }
