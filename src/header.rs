@@ -12,7 +12,7 @@ use crate::generated::vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods};
 
 #[derive(Debug)]
 pub struct VmdkSparseFileHeader {
-    pub io: Box<dyn ReadSeek>,
+    pub src: Box<dyn ReadSeek>,
     pub size_max: u64,
     pub size_grain: u64,
     pub grain_dir: u64,
@@ -29,7 +29,7 @@ fn try_vmware_cowd_header(
 {
     match VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None) {
         Ok(h) => Ok(VmdkSparseFileHeader {
-            io: src,
+            src,
             size_max: *h.size_max() as u64,
             size_grain: *h.size_grain() as u64,
             grain_dir: *h.grain_dir() as u64,
@@ -74,7 +74,7 @@ fn try_vmware_vmdk_header(
     let descriptor = String::from_utf8_lossy(h.descriptor()?.deref()).into();
 
     let hdr = VmdkSparseFileHeader {
-        io: src,
+        src,
         size_max: *h.size_max() as u64,
         size_grain: *h.size_grain() as u64,
         grain_dir,

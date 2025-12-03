@@ -84,11 +84,11 @@ fn read_grain_table(
     let mut grain_table_start_index = 0;
 
     // get and read metadata-0
-    h.io.seek(SeekFrom::Start(h.grain_dir * 512))?;
+    h.src.seek(SeekFrom::Start(h.grain_dir * 512))?;
 //        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
 
     let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
-    h.io.read_exact(&mut buf)?;
+    h.src.read_exact(&mut buf)?;
 
     let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
@@ -115,10 +115,10 @@ fn read_grain_table(
             continue;
         }
 
-        h.io.seek(SeekFrom::Start(*grain_table_offset))?;
+        h.src.seek(SeekFrom::Start(*grain_table_offset))?;
 //            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
         let mut buf = vec![0; grain_table1_elems * 4]; 
-        h.io.read_exact(&mut buf)?;
+        h.src.read_exact(&mut buf)?;
 
         let grain_table: Vec<u64> = buf.chunks_exact(4)
             .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
