@@ -305,7 +305,6 @@ impl VmdkReader {
         let mut idx = 0;
 
         loop {
-
             let (extents0, next_fn) = handle_image(
                 &current_fn,
                 idx,
@@ -331,6 +330,7 @@ impl VmdkReader {
             idx += extents0.len();
             extents.push(extents0);
 
+            // keep going if we are not at the end of the image chain
             match next_fn {
                 Some(next_fn) => current_fn.set_file_name(next_fn),
                 None => break
