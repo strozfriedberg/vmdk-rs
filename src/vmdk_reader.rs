@@ -244,12 +244,51 @@ pub fn source_for<P: AsRef<str>>(
     }
 }
 
+fn handle_image<T: AsRef<Path>>(
+    current_fn: T,
+    idx: usize,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>
+) -> Result<(Vec<Extent>, Option<String>), OpenError>
+{
+    // FIXME
+    let current_fn_str = current_fn.as_ref().to_str()
+        .ok_or_else(|| OpenErrorKind::BadPath("".into()))?;
+
+    let src = source_for(current_fn_str, &runtime)?;
+    let seg_len = src.end();
+
+    cache.lock().unwrap().add_source(idx, src);
+
+    let crs = CacheReadSeek::new(
+        cache.clone(),
+        runtime.clone(),
+        idx,
+        seg_len
+    );
+
+    let (descriptor, is_bin) = read_descriptor(&current_fn, crs)?;
+
+    let extents = read_extents(
+        &current_fn,
+        &descriptor,
+        is_bin,
+        cache.clone(),
+        runtime.clone(),
+        idx
+    )?;
+
+    let next_fn = extract_parent_fn_hint(&descriptor);
+
+    Ok((extents, next_fn))
+}
+
 impl VmdkReader {
     pub fn open<T: AsRef<Path>>(
         image_path: T
     ) -> Result<Self, OpenError>
     {
-        let mut total_size = 0;
+        let mut image_size = None;
         let mut extents = vec![];
         let mut current_fn = PathBuf::from(image_path.as_ref());
 
@@ -266,34 +305,25 @@ impl VmdkReader {
         let mut idx = 0;
 
         loop {
-            // FIXME
-            let current_fn_str = current_fn.to_str()
-                .ok_or_else(|| OpenErrorKind::BadPath("".into()))?;
 
-            let src = source_for(current_fn_str, &runtime)?;
-            let seg_len = src.end(); 
-
-            cache.lock().unwrap().add_source(idx, src);
-
-            let crs = CacheReadSeek::new(
-                cache.clone(),
-                runtime.clone(),
+            let (extents0, next_fn) = handle_image(
+                &current_fn,
                 idx,
-                seg_len
-            );
+                cache.clone(),
+                runtime.clone()
+            )?;
 
-            let (descriptor, is_bin) = read_descriptor(&current_fn, crs)?;
-            let extents0 = read_extents(&current_fn, &descriptor, is_bin, cache.clone(), runtime.clone(), idx)?;
+            // size for all images must match
+            let size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
 
-            let total_size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
-            if total_size == 0 {
-                total_size = total_size0;
+            if image_size.is_none() {
+                image_size = Some(size0);
             }
-            else if total_size != total_size0 {
+            else if let Some(s) = image_size && s != size0 {
                 return Err(OpenError {
                     path: current_fn,
                     kind: OpenErrorKind::BadParentExtentDescriptorSize(
-                        total_size, total_size0
+                        s, size0
                     )
                 });
             }
@@ -301,17 +331,15 @@ impl VmdkReader {
             idx += extents0.len();
             extents.push(extents0);
 
-            if let Some(next_fn) = extract_parent_fn_hint(&descriptor) {
-                current_fn.set_file_name(next_fn);
-            }
-            else {
-                break;
+            match next_fn {
+                Some(next_fn) => current_fn.set_file_name(next_fn),
+                None => break
             }
         }
 
         Ok(Self {
             image_path: image_path.as_ref().into(),
-            image_size: total_size,
+            image_size: image_size.expect("cannot be None"),
             extents,
             cache,
             runtime
@@ -347,7 +375,7 @@ impl VmdkReader {
                 let remaining_grain_size;
 
                 match &mut extent.storage {
-                    ExtentStorage::Sparse(ref mut storage) => {
+                    ExtentStorage::Sparse(storage) => {
                         grain_size = storage.grain_size * SECTOR_SIZE;
 
                         remaining_grain_size = if grain_size > 0 {
