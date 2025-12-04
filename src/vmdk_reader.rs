@@ -304,7 +304,7 @@ impl VmdkReader {
 
         let mut idx = 0;
 
-        loop {
+        let image_size = loop {
             let (extents0, next_fn) = handle_image(
                 &current_fn,
                 idx,
@@ -333,13 +333,13 @@ impl VmdkReader {
             // keep going if we are not at the end of the image chain
             match next_fn {
                 Some(next_fn) => current_fn.set_file_name(next_fn),
-                None => break
+                None => break size0
             }
-        }
+        };
 
         Ok(Self {
             image_path: image_path.as_ref().into(),
-            image_size: image_size.expect("cannot be None"),
+            image_size,
             extents,
             cache,
             runtime
