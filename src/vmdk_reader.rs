@@ -29,7 +29,7 @@ use crate::{
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
-    header::{check_signature, read_descriptor_from_header},
+    header::{check_signature, read_header},
     s3source::S3Source
 };
 
@@ -63,7 +63,7 @@ pub enum ReadError {
 }
 
 fn read_descriptor_file<R>(
-    mut src: R
+    src: R
 ) -> Result<String, OpenError>
 where
     R: Read
@@ -94,26 +94,6 @@ where
                 )
             })
         }
-    }
-}
-
-fn read_descriptor<S>(
-    mut src: S
-) -> Result<(String, bool), OpenError>
-where
-    S: Read + Seek + Clone + 'static
-{
-    let ft = check_signature(&mut src)?;
-
-    src.seek(SeekFrom::Start(0))?;
-
-    if ft.is_some() {
-        read_descriptor_from_header(src)
-            .map(|desc| (desc, true))
-    }
-    else {
-        read_descriptor_file(src)
-            .map(|desc| (desc, false))
     }
 }
 
@@ -276,8 +256,18 @@ fn handle_image<T: AsRef<Path>>(
         seg_len
     );
 
-    let (descriptor, is_bin) = read_descriptor(crs)
-        .map_err(|e| e.with_path(&current_fn_str))?;
+    let ft = check_signature(&mut crs)?;
+    crs.seek(SeekFrom::Start(0))?;
+
+    let (descriptor, sparse_header) = if ft.is_some() {
+        let h = read_header(crs)?;
+        (h.descriptor.clone(), Some(h))
+    }
+    else {
+        (read_descriptor_file(crs)?, None)
+    };
+
+    let is_bin = sparse_header.is_some();
 
     let extents = read_extents(
         &current_fn,

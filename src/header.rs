@@ -151,12 +151,3 @@ pub fn read_header<T: Read + Seek + Clone + 'static>(
         None => Err(OpenErrorKind::InvalidFileHeader)
     }
 }
-
-pub fn read_descriptor_from_header<T: Read + Seek + Clone + 'static>(
-    src: T
-) -> Result<String, OpenError>
-{
-    read_header(src)
-        .map(|h| h.descriptor)
-        .map_err(OpenError::from)
-}
