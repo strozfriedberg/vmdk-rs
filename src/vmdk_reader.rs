@@ -29,7 +29,7 @@ use crate::{
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
-    header::{read_descriptor_from_header, signature_to_file_type},
+    header::{check_signature, read_descriptor_from_header},
     s3source::S3Source
 };
 
@@ -103,14 +103,11 @@ fn read_descriptor<S>(
 where
     S: Read + Seek + Clone + 'static
 {
-    // check the signature
-    let mut first_bytes = [0; 4];
-
-    src.read_exact(&mut first_bytes)?;
+    let ft = check_signature(&mut src)?;
 
     src.seek(SeekFrom::Start(0))?;
 
-    if signature_to_file_type(&first_bytes).is_some() {
+    if ft.is_some() {
         read_descriptor_from_header(src)
             .map(|desc| (desc, true))
     }

@@ -118,29 +118,37 @@ pub fn signature_to_file_type(sig: &[u8; 4]) -> Option<FileType> {
     }
 }
 
+pub fn check_signature<T>(
+    src: &mut T
+) -> Result<Option<FileType>, std::io::Error>
+where
+    T: Read
+{
+    // check the signature
+    let mut sig = [0; 4];
+    src.read_exact(&mut sig)?;
+    Ok(signature_to_file_type(&sig))
+}
+
 pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-    let mut first_bytes = [0; 4];
-
-    src.read_exact(&mut first_bytes)
+    let ft = check_signature(&mut src)
         .map_err(IoError::from)?;
-//        .map_err(|e| IoError::SeekError(4, e))?;
 
     src.seek(SeekFrom::Start(0))
         .map_err(IoError::from)?;
-//        .map_err(|e| IoError::SeekError(4, e))?;
 
     let rs = Box::new(src.clone()) as Box<dyn ReadSeek>;
     let io = BytesReader::try_from(rs)?;
 
     let src = Box::new(src) as Box<dyn ReadSeek>;
 
-    match first_bytes {
-        COWD_SIGNATURE => Ok(try_vmware_cowd_header(io, src)?),
-        VMDK_SIGNATURE => Ok(try_vmware_vmdk_header(io, src)?),
-        _ => Err(OpenErrorKind::InvalidFileHeader)
+    match ft {
+        Some(FileType::Cowd) => Ok(try_vmware_cowd_header(io, src)?),
+        Some(FileType::Vmdk) => Ok(try_vmware_vmdk_header(io, src)?),
+        None => Err(OpenErrorKind::InvalidFileHeader)
     }
 }
 
