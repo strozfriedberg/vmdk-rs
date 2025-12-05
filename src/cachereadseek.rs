@@ -38,10 +38,21 @@ impl Read for CacheReadSeek {
     ) -> Result<usize, std::io::Error>
     {
         let mut cache = self.cache.lock().unwrap();
-        self.runtime.block_on(cache.read(self.idx, self.pos, buf))?;
 
-        self.pos += buf.len() as u64;
-        Ok(buf.len())
+        // check that we don't read past the end of the source
+        let send = cache.end(self.idx)?;
+        let rend = send.min(self.pos + buf.len() as u64);
+
+        let len = (rend - self.pos) as usize;
+
+        if len > 0 {
+            self.runtime.block_on(
+                cache.read(self.idx, self.pos, &mut buf[..len])
+            )?;
+            self.pos = rend;
+        }
+
+        Ok(len)
     }
 }
 
