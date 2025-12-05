@@ -105,6 +105,19 @@ fn try_vmware_vmdk_header(
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
 const VMDK_SIGNATURE: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
 
+pub enum FileType {
+    Cowd,
+    Vmdk
+}
+
+pub fn signature_to_file_type(sig: &[u8; 4]) -> Option<FileType> {
+    match sig {
+        &COWD_SIGNATURE => Some(FileType::Cowd),
+        &VMDK_SIGNATURE => Some(FileType::Vmdk),
+        _ => None
+    }
+}
+
 pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>

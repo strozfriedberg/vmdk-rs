@@ -29,7 +29,7 @@ use crate::{
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
-    header::read_descriptor_from_header,
+    header::{read_descriptor_from_header, signature_to_file_type},
     s3source::S3Source
 };
 
@@ -62,49 +62,61 @@ pub enum ReadError {
     IoError(#[from] io::Error)
 }
 
-fn read_descriptor<T, S>(
-    image_path: T,
-    src: S
+fn read_descriptor_file<R>(
+    mut src: R
+) -> Result<String, OpenError>
+where
+    R: Read
+{
+    // Read a line at a time until we know we have a descriptor file,
+    // to avoid reading a giant file which is not a descriptor file
+    // into memory.
+
+    let mut r = BufReader::new(src);
+    let mut desc = String::new();
+    let mut line = String::new();
+
+    loop {
+        r.read_line(&mut line)?;
+        desc += &line;
+
+        match line.as_str().trim_end() {
+            "# Disk DescriptorFile" => {
+                // this is a descriptor file, read the rest
+                r.read_to_string(&mut desc)?;
+                return Ok(desc);
+            },
+            "" => line.clear(),
+            _ => return Err(OpenError {
+                path: "".into(),
+                kind: OpenErrorKind::DescriptorError(
+                    DescriptorError::UnrecognizedDescriptor
+                )
+            })
+        }
+    }
+}
+
+fn read_descriptor<S>(
+    mut src: S
 ) -> Result<(String, bool), OpenError>
 where
-    T: AsRef<Path>,
     S: Read + Seek + Clone + 'static
 {
-// FIXME: don't swallow errors from open_bin
-    match read_descriptor_from_header(src) {
-        Ok(desc) => Ok((desc, true)),
-        Err(_) => {
-            // maybe this is a raw descriptor file
-            let f = File::open(&image_path)
-                .map_err(OpenError::from)
-                .map_err(|e| e.with_path(&image_path))?;
+    // check the signature
+    let mut first_bytes = [0; 4];
 
-            let f = BufReader::new(f);
+    src.read_exact(&mut first_bytes)?;
 
-            for line in f.lines() {
-                let line = line
-                    .map_err(OpenError::from)
-                    .map_err(|e| e.with_path(&image_path))?;
+    src.seek(SeekFrom::Start(0))?;
 
-                match line.as_str() {
-                    "# Disk DescriptorFile" => break,
-                    "" => continue,
-                    _ => return Err(OpenError {
-                        path: image_path.as_ref().into(),
-                        kind: OpenErrorKind::DescriptorError(
-                            DescriptorError::UnrecognizedDescriptor
-                        )
-                    })
-                }
-            }
-
-            Ok((
-                fs::read_to_string(&image_path)
-                    .map_err(OpenError::from)
-                    .map_err(|e| e.with_path(&image_path))?,
-                false
-            ))
-        }
+    if signature_to_file_type(&first_bytes).is_some() {
+        read_descriptor_from_header(src)
+            .map(|desc| (desc, true))
+    }
+    else {
+        read_descriptor_file(src)
+            .map(|desc| (desc, false))
     }
 }
 
@@ -260,14 +272,15 @@ fn handle_image<T: AsRef<Path>>(
 
     cache.lock().unwrap().add_source(idx, src);
 
-    let crs = CacheReadSeek::new(
+    let mut crs = CacheReadSeek::new(
         cache.clone(),
         runtime.clone(),
         idx,
         seg_len
     );
 
-    let (descriptor, is_bin) = read_descriptor(&current_fn, crs)?;
+    let (descriptor, is_bin) = read_descriptor(crs)
+        .map_err(|e| e.with_path(&current_fn_str))?;
 
     let extents = read_extents(
         &current_fn,
@@ -556,6 +569,50 @@ mod test {
         assert!(matches!(
             extent_for_offset(&mut exts, 20 * 512),
             None
+        ));
+    }
+
+    #[test]
+    fn test_read_descriptor_file_ok() {
+        let desc = r#"
+# Disk DescriptorFile
+version=1
+encoding="UTF-8"
+CID=8f67ca74
+parentCID=0172e8a4
+createType="vmfsSparse"
+parentFileNameHint="vmfs_thick.vmdk"
+# Extent description
+RW 4096 VMFSSPARSE "vmfs_thick-000001-delta.vmdk"
+
+# The Disk Data Base
+#DDB
+
+ddb.longContentID = "4b98b55ba6a6bc2e8fd6eb368f67ca74"
+"#;
+
+        assert_eq!(
+            read_descriptor_file(desc.as_bytes()).unwrap(),
+            desc
+        );
+    }
+
+    #[test]
+    fn test_read_descriptor_file_bad() {
+        let desc = r#"
+
+
+Bogus crap
+"#;
+
+        assert!(matches!(
+            read_descriptor_file(desc.as_bytes()).unwrap_err(),
+            OpenError {
+                path: _,
+                kind: OpenErrorKind::DescriptorError(
+                    DescriptorError::UnrecognizedDescriptor
+                )
+            }
         ));
     }
 }
