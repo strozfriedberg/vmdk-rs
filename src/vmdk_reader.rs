@@ -29,7 +29,7 @@ use crate::{
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
     extents::{Extent, ExtentStorage, read_extents},
-    header::{check_signature, read_header},
+    header::{check_signature, read_header, VmdkSparseFileHeader},
     s3source::S3Source
 };
 
@@ -259,20 +259,19 @@ fn handle_image<T: AsRef<Path>>(
     let ft = check_signature(&mut crs)?;
     crs.seek(SeekFrom::Start(0))?;
 
-    let (descriptor, sparse_header) = if ft.is_some() {
+    let (descriptor, header) = if ft.is_some() {
         let h = read_header(crs)?;
-        (h.descriptor.clone(), Some(h))
+        let descriptor = h.descriptor.clone();
+        (descriptor, Some(h))
     }
     else {
         (read_descriptor_file(crs)?, None)
     };
 
-    let is_bin = sparse_header.is_some();
-
     let extents = read_extents(
         &current_fn,
         &descriptor,
-        is_bin,
+        header,
         cache.clone(),
         runtime.clone(),
         idx
@@ -299,7 +298,6 @@ impl VmdkReader {
         );
 
         let c = DummyCache::new();
-
         let cache = Arc::new(Mutex::new(c));
 
         let mut idx = 0;

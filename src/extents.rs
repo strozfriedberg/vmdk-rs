@@ -202,7 +202,7 @@ fn filename_from_ed(ed: &ExtentDescription) -> &str {
 fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
-    is_bin: bool,
+    header: Option<VmdkSparseFileHeader>,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>,
     mut idx: usize
@@ -210,18 +210,20 @@ fn read_extents_impl<T: AsRef<Path>>(
     let eds = extract_extent_descriptions(descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
-    let is_bin_and_singular = is_bin && eds.len() == 1;
+    let is_bin_and_singular = header.is_some() && eds.len() == 1;
 
     let mut extents = vec![];
 
     for ed in eds {
         let filename = filename_from_ed(&ed);
+// FIXME: probably wrong for S3?
         let mut ed_fn = image_path.as_ref().with_file_name(filename);
         if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
             // if first filename is wrong and we are bin, try current file
             ed_fn = image_path.as_ref().to_path_buf();
         }
 
+// TODO: extract this from the loop?
         let filename = ed_fn.to_string_lossy().to_string();
 
         let src = source_for(&filename, &runtime)?;
@@ -259,12 +261,12 @@ fn read_extents_impl<T: AsRef<Path>>(
 pub fn read_extents<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
-    is_bin: bool,
+    header: Option<VmdkSparseFileHeader>,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>,
     idx: usize
 ) -> Result<Vec<Extent>, OpenError> {
-    read_extents_impl(&image_path, descriptor, is_bin, cache, runtime, idx)
+    read_extents_impl(&image_path, descriptor, header, cache, runtime, idx)
         .map_err(|e| e.with_path(&image_path))
 }
 
