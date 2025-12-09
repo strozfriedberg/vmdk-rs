@@ -27,7 +27,7 @@ use crate::{
     dummycache::DummyCache,
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
-    extents::{Extent, ExtentStorage, read_extents},
+    extents::{Extent, ExtentStorage, FlatStorage, read_extents},
     header::{check_signature, read_header, VmdkSparseFileHeader},
     s3source::S3Source
 };
@@ -433,12 +433,12 @@ impl VmdkReader {
                         };
 
                         // FLAT, VMFS
-
-                        let f = &mut storage.file;
-
-                        // NB: only ExtentKind::Flat has nonzero offset
-                        f.seek(SeekFrom::Start(local_offset + storage.offset))?;
-                        f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
+                        read_flat(
+                            local_offset,
+                            remaining_grain_size,
+                            storage,
+                            remaining_buf
+                        )?;
                     },
                     ExtentStorage::Zero => todo!("ZERO support")
                 }
@@ -452,6 +452,21 @@ impl VmdkReader {
 
         Ok(bytes_read)
     }
+}
+
+fn read_flat(
+    local_offset: u64,
+    remaining_grain_size: usize,
+    storage: &mut FlatStorage,
+    remaining_buf: &mut [u8]
+) -> Result<(), ReadError>
+{
+    // FLAT, VMFS
+    let f = &mut storage.file;
+    // NB: only ExtentKind::Flat has nonzero offset
+    f.seek(SeekFrom::Start(local_offset + storage.offset))?;
+    f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
+    Ok(())
 }
 
 #[cfg(test)]
