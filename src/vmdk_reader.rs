@@ -389,7 +389,7 @@ impl VmdkReader {
                             remaining_grain_size,
                             ex_pos == ex_len - 1,
                             storage,
-                            remaining_buf
+                            &mut remaining_buf[..remaining_grain_size]
                         )?
                         {
                             // check in next file
@@ -434,15 +434,13 @@ fn read_sparse(
     buf: &mut [u8]
 ) -> Result<bool, ReadError>
 {
-    // calculate grain index and offset
     let grain_index = offset / grain_size;
-    let grain_data_offset = (offset % grain_size) as usize;
 
     match storage.grain_table.get(&grain_index) {
         None => {
             if is_last {
                 // last vmdk file, zero-fill
-                buf[..remaining_grain_size].fill(0);
+                buf.fill(0);
                 Ok(true)
             }
             else {
@@ -453,7 +451,7 @@ fn read_sparse(
         Some(sector_num) => {
             if storage.zeroed_grain_table_entry && *sector_num == 1 {
                 // handle zeroed GTE
-                buf[..remaining_grain_size].fill(0);
+                buf.fill(0);
             }
             else {
                 let seek_pos = *sector_num * SECTOR_SIZE;
@@ -470,7 +468,9 @@ fn read_sparse(
                     data
                 };
 
-                buf[..remaining_grain_size].clone_from_slice(
+                let grain_data_offset = (offset % grain_size) as usize;
+
+                buf.clone_from_slice(
                     &grain_data[grain_data_offset
                         ..grain_data_offset + remaining_grain_size],
                 );
