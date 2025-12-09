@@ -1,7 +1,6 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
 use kaitai::ReadSeek;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use s3::{
     bucket::Bucket,
@@ -13,7 +12,7 @@ use std::{
     fs::{self, File},
     io::{self, BufReader, BufRead, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex}
+    sync::{Arc, LazyLock, Mutex}
 };
 use tokio::runtime::Runtime;
 use tracing::debug;
@@ -98,7 +97,7 @@ where
 }
 
 fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
-    static PAT: Lazy<Regex> = Lazy::new(||
+    static PAT: LazyLock<Regex> = LazyLock::new(||
         Regex::new(r#"^parentFileNameHint="([^"]+)"#)
             .expect("bad regex")
     );

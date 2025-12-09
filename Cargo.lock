@@ -1923,7 +1923,6 @@ dependencies = [
  "flate2",
  "futures",
  "kaitai",
- "once_cell",
  "rand",
  "regex",
  "rust-s3",
