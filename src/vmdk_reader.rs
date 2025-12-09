@@ -120,8 +120,9 @@ fn extent_for_offset(
     match i {
         // offset before first extent
         0 => None,
-        // offset is in extent i-1
-        i if sector < extents[i-1].start_sector + extents[i-1].sectors => Some(&mut extents[i-1]),
+        // offset is in extent i - 1
+        i if sector < extents[i - 1].start_sector + extents[i - 1].sectors
+            => Some(&mut extents[i - 1]),
         // offset is in a gap between extents i-1 and i
         _ => None
     }
