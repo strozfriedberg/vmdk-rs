@@ -367,64 +367,93 @@ impl VmdkReader {
                 let extent = extent_for_offset(&mut ex, offset)
                     .ok_or_else(|| ReadError::OffsetNotFound(offset))?;
 
-                let local_offset = offset - extent.start_sector * SECTOR_SIZE;
-                let remaining_buf = &mut buf[bytes_read..];
-                let remaining_size = remaining_buf.len();
-                let remaining_grain_size;
+                let (r, gs) = read_storage(
+                    offset,
+                    extent,
+                    grain_size,
+                    ex_pos == ex_len - 1,
+                    &mut buf[bytes_read..]
+                )?;
 
-                match &mut extent.storage {
-                    ExtentStorage::Sparse(storage) => {
-                        grain_size = storage.grain_size * SECTOR_SIZE;
+                grain_size = gs;
 
-                        remaining_grain_size = if grain_size > 0 {
-                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                        }
-                        else {
-                            remaining_size
-                        };
+                match r {
+                    None => continue,
+                    Some(r) => {
+                        bytes_read += r;
+                        offset += r as u64;
 
-                        if !read_sparse(
-                            offset,
-                            grain_size,
-                            remaining_grain_size,
-                            ex_pos == ex_len - 1,
-                            storage,
-                            &mut remaining_buf[..remaining_grain_size]
-                        )?
-                        {
-                            // not found, check in next file
-                            continue;
-                        }
-                    },
-                    ExtentStorage::Flat(storage) => {
-                        // TODO: can this possibly be right? why does the
-                        // grain size matter for non-grained extents?
-                        remaining_grain_size = if grain_size > 0 {
-                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                        }
-                        else {
-                            remaining_size
-                        };
+                        // look for next piece of data from the first extent descriptor
+                        break;
 
-                        // FLAT, VMFS
-                        read_flat(
-                            local_offset,
-                            storage,
-                            &mut remaining_buf[..remaining_grain_size]
-                        )?;
-                    },
-                    ExtentStorage::Zero => todo!("ZERO support")
+
+                    }
                 }
-
-                bytes_read += remaining_grain_size;
-                offset += remaining_grain_size as u64;
-                // look for next piece of data from the first extent descriptor
-                break;
             }
         }
 
         Ok(bytes_read)
     }
+}
+
+fn read_storage(
+    offset: u64,
+    extent: &mut Extent,
+    mut grain_size: u64,
+    is_last: bool,
+    remaining_buf: &mut [u8]
+) -> Result<(Option<usize>, u64), ReadError>
+{
+    let local_offset = offset - extent.start_sector * SECTOR_SIZE;
+    let remaining_size = remaining_buf.len();
+    let remaining_grain_size;
+
+    match &mut extent.storage {
+        ExtentStorage::Sparse(storage) => {
+            grain_size = storage.grain_size * SECTOR_SIZE;
+
+            remaining_grain_size = if grain_size > 0 {
+                remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
+            }
+            else {
+                remaining_size
+            };
+
+            if !read_sparse(
+                offset,
+                grain_size,
+                remaining_grain_size,
+                is_last,
+                storage,
+                &mut remaining_buf[..remaining_grain_size]
+            )?
+            {
+                // not found, check in next file
+                return Ok((None, grain_size));
+            }
+        },
+        ExtentStorage::Flat(storage) => {
+            // TODO: can this possibly be right? why does the
+            // grain size matter for non-grained extents?
+            remaining_grain_size = if grain_size > 0 {
+                remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
+            }
+            else {
+                remaining_size
+            };
+
+            // FLAT, VMFS
+            read_flat(
+                local_offset,
+                storage,
+                &mut remaining_buf[..remaining_grain_size]
+            )?;
+        },
+        ExtentStorage::Zero => todo!("ZERO support")
+    }
+
+    // look for next piece of data from the first extent descriptor
+    Ok((Some(remaining_grain_size), grain_size))
 }
 
 fn read_sparse(
