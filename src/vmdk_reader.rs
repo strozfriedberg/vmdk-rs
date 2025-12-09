@@ -27,7 +27,7 @@ use crate::{
     dummycache::DummyCache,
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
-    extents::{Extent, ExtentStorage, FlatStorage, read_extents},
+    extents::{Extent, ExtentStorage, FlatStorage, SparseStorage, read_extents},
     header::{check_signature, read_header, VmdkSparseFileHeader},
     s3source::S3Source
 };
@@ -383,45 +383,17 @@ impl VmdkReader {
                             remaining_size
                         };
 
-                        // calculate grain index and offset
-                        let grain_index = offset / grain_size;
-                        let grain_data_offset = (offset % grain_size) as usize;
-
-                        match storage.grain_table.get(&grain_index) {
-                            None => {
-                                // if this is last vmdk-file
-                                if ex_pos == ex_len - 1 {
-                                    remaining_buf[..remaining_grain_size].fill(0);
-                                }
-                                else {
-                                    // check in next
-                                    continue;
-                                }
-                            },
-                            Some(sector_num) => {
-                                // handle zero GTE
-                                if storage.zeroed_grain_table_entry && *sector_num == 1 {
-                                    remaining_buf[..remaining_grain_size].fill(0);
-                                }
-                                else {
-                                    let seek_pos = *sector_num * SECTOR_SIZE;
-                                    storage.file
-                                        .seek(SeekFrom::Start(seek_pos))?;
-                                    let grain_data = if storage.has_compressed_grain {
-                                        read_and_decompress_grain(&mut storage.file, grain_index)?
-                                    }
-                                    else {
-                                        // calculate real sector and read whole grain
-                                        let mut data = vec![0u8; grain_size as usize];
-                                        storage.file.read_exact(&mut data)?;
-                                        data
-                                    };
-                                    remaining_buf[..remaining_grain_size].clone_from_slice(
-                                        &grain_data[grain_data_offset
-                                            ..grain_data_offset + remaining_grain_size],
-                                    );
-                                }
-                            }
+                        if !read_sparse(
+                            offset,
+                            grain_size,
+                            remaining_grain_size,
+                            ex_pos == ex_len - 1,
+                            storage,
+                            remaining_buf
+                        )?
+                        {
+                            // check in next file
+                            continue;
                         }
                     },
                     ExtentStorage::Flat(storage) => {
@@ -450,6 +422,61 @@ impl VmdkReader {
         }
 
         Ok(bytes_read)
+    }
+}
+
+fn read_sparse(
+    offset: u64,
+    grain_size: u64,
+    remaining_grain_size: usize,
+    is_last: bool,
+    storage: &mut SparseStorage,
+    buf: &mut [u8]
+) -> Result<bool, ReadError>
+{
+    // calculate grain index and offset
+    let grain_index = offset / grain_size;
+    let grain_data_offset = (offset % grain_size) as usize;
+
+    match storage.grain_table.get(&grain_index) {
+        None => {
+            if is_last {
+                // last vmdk file, zero-fill
+                buf[..remaining_grain_size].fill(0);
+                Ok(true)
+            }
+            else {
+                // check in next
+                Ok(false)
+            }
+        },
+        Some(sector_num) => {
+            if storage.zeroed_grain_table_entry && *sector_num == 1 {
+                // handle zeroed GTE
+                buf[..remaining_grain_size].fill(0);
+            }
+            else {
+                let seek_pos = *sector_num * SECTOR_SIZE;
+                storage.file
+                    .seek(SeekFrom::Start(seek_pos))?;
+
+                let grain_data = if storage.has_compressed_grain {
+                    read_and_decompress_grain(&mut storage.file, grain_index)?
+                }
+                else {
+                    // calculate real sector and read whole grain
+                    let mut data = vec![0u8; grain_size as usize];
+                    storage.file.read_exact(&mut data)?;
+                    data
+                };
+
+                buf[..remaining_grain_size].clone_from_slice(
+                    &grain_data[grain_data_offset
+                        ..grain_data_offset + remaining_grain_size],
+                );
+            }
+            Ok(true)
+        }
     }
 }
 
