@@ -57,6 +57,8 @@ impl Debug for VmdkReader {
 pub enum ReadError {
     #[error("Requested offset {0} is beyond end of image {1}")]
     OffsetBeyondEnd(u64, u64),
+    #[error("Offset {0} not found")]
+    OffsetNotFound(u64),
     #[error("{0}")]
     IoError(#[from] io::Error)
 }
@@ -357,15 +359,12 @@ impl VmdkReader {
 
         let mut bytes_read = 0;
         let mut grain_size = 0;
-        let mut eof = false;
 
-        while bytes_read < buf.len() && !eof {
+        while bytes_read < buf.len() {
             let ex_len = self.extents.len();
             for (ex_pos, mut ex) in self.extents.iter_mut().enumerate() {
-                let Some(ref mut extent) = extent_for_offset(&mut ex, offset) else {
-                    eof = true;
-                    break;
-                };
+                let extent = extent_for_offset(&mut ex, offset)
+                    .ok_or_else(|| ReadError::OffsetNotFound(offset))?;
 
                 let local_offset = offset - extent.start_sector * SECTOR_SIZE;
                 let remaining_buf = &mut buf[bytes_read..];
