@@ -367,7 +367,6 @@ impl VmdkReader {
                 };
 
                 let local_offset = offset - extent.start_sector * SECTOR_SIZE;
-
                 let remaining_buf = &mut buf[bytes_read..];
                 let remaining_size = remaining_buf.len();
                 let remaining_grain_size;
@@ -392,11 +391,13 @@ impl VmdkReader {
                             &mut remaining_buf[..remaining_grain_size]
                         )?
                         {
-                            // check in next file
+                            // not found, check in next file
                             continue;
                         }
                     },
                     ExtentStorage::Flat(storage) => {
+                        // TODO: can this possibly be right? why does the
+                        // grain size matter for non-grained extents?
                         remaining_grain_size = if grain_size > 0 {
                             remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
                         }
