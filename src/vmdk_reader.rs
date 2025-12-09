@@ -434,6 +434,8 @@ fn read_sparse(
     buf: &mut [u8]
 ) -> Result<bool, ReadError>
 {
+    // return value is whether we filled the buffer
+
     let grain_index = offset / grain_size;
 
     match storage.grain_table.get(&grain_index) {
