@@ -311,7 +311,8 @@ impl VmdkReader {
             )?;
 
             // size for all images must match
-            let size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
+            let size0 = extents0.iter()
+                .fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
 
             if image_size.is_none() {
                 image_size = Some(size0);
