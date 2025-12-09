@@ -404,7 +404,9 @@ fn read_storage(
     remaining_buf: &mut [u8]
 ) -> Result<(Option<usize>, u64), ReadError>
 {
+    // local_offset is the offset from the start of the extent
     let local_offset = offset - extent.start_sector * SECTOR_SIZE;
+
     let remaining_size = remaining_buf.len();
     let remaining_grain_size;
 
