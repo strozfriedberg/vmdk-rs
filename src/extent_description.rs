@@ -33,7 +33,7 @@ pub enum ExtentKind {
     Vmfs,
     VmfsSparse,
     VmfsRdm,
-    VmfsRaw,
+    VmfsRaw
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
