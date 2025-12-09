@@ -360,8 +360,9 @@ impl VmdkReader {
         let mut bytes_read = 0;
         let mut grain_size = 0;
 
+        let ex_len = self.extents.len();
+
         while bytes_read < buf.len() {
-            let ex_len = self.extents.len();
             for (ex_pos, mut ex) in self.extents.iter_mut().enumerate() {
                 let extent = extent_for_offset(&mut ex, offset)
                     .ok_or_else(|| ReadError::OffsetNotFound(offset))?;
