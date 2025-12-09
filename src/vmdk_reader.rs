@@ -435,9 +435,8 @@ impl VmdkReader {
                         // FLAT, VMFS
                         read_flat(
                             local_offset,
-                            remaining_grain_size,
                             storage,
-                            remaining_buf
+                            &mut remaining_buf[..remaining_grain_size]
                         )?;
                     },
                     ExtentStorage::Zero => todo!("ZERO support")
@@ -456,16 +455,15 @@ impl VmdkReader {
 
 fn read_flat(
     local_offset: u64,
-    remaining_grain_size: usize,
     storage: &mut FlatStorage,
-    remaining_buf: &mut [u8]
+    buf: &mut [u8]
 ) -> Result<(), ReadError>
 {
     // FLAT, VMFS
     let f = &mut storage.file;
     // NB: only ExtentKind::Flat has nonzero offset
     f.seek(SeekFrom::Start(local_offset + storage.offset))?;
-    f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
+    f.read_exact(buf)?;
     Ok(())
 }
 
