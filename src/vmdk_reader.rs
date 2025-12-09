@@ -115,7 +115,7 @@ fn extent_for_offset(
     extents: &mut [Extent],
     offset: u64
 ) -> Option<&mut Extent> {
-    let sector = offset / 512;
+    let sector = offset / SECTOR_SIZE;
     let i = extents.partition_point(|ex| ex.start_sector <= sector);
 
     match i {
@@ -311,7 +311,7 @@ impl VmdkReader {
             )?;
 
             // size for all images must match
-            let size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
+            let size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
 
             if image_size.is_none() {
                 image_size = Some(size0);
@@ -366,7 +366,7 @@ impl VmdkReader {
                     break;
                 };
 
-                let local_offset = offset - extent.start_sector * 512;
+                let local_offset = offset - extent.start_sector * SECTOR_SIZE;
 
                 let remaining_buf = &mut buf[bytes_read..];
                 let remaining_size = remaining_buf.len();
@@ -492,7 +492,7 @@ mod test {
 
         // end of 0
         assert!(matches!(
-            extent_for_offset(&mut exts, 9 * 512),
+            extent_for_offset(&mut exts, 9 * SECTOR_SIZE),
             Some(
                 Extent {
                     start_sector: 0,
@@ -504,7 +504,7 @@ mod test {
 
         // start of 1
         assert!(matches!(
-            extent_for_offset(&mut exts, 10 * 512),
+            extent_for_offset(&mut exts, 10 * SECTOR_SIZE),
             Some(
                 Extent {
                     start_sector: 10,
@@ -516,7 +516,7 @@ mod test {
 
         // end of 1
         assert!(matches!(
-            extent_for_offset(&mut exts, 14 * 512),
+            extent_for_offset(&mut exts, 14 * SECTOR_SIZE),
             Some(
                 Extent {
                     start_sector: 10,
@@ -528,7 +528,7 @@ mod test {
 
         // start of 2
         assert!(matches!(
-            extent_for_offset(&mut exts, 15 * 512),
+            extent_for_offset(&mut exts, 15 * SECTOR_SIZE),
             Some(
                 Extent {
                     start_sector: 15,
@@ -540,7 +540,7 @@ mod test {
 
         // end of 2
         assert!(matches!(
-            extent_for_offset(&mut exts, 19 * 512),
+            extent_for_offset(&mut exts, 19 * SECTOR_SIZE),
             Some(
                 Extent {
                     start_sector: 15,
@@ -552,7 +552,7 @@ mod test {
 
         // past the end
         assert!(matches!(
-            extent_for_offset(&mut exts, 20 * 512),
+            extent_for_offset(&mut exts, 20 * SECTOR_SIZE),
             None
         ));
     }
