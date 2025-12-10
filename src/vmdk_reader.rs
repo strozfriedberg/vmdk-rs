@@ -415,13 +415,13 @@ fn read_storage(
     let local_offset = offset - extent.start_sector * SECTOR_SIZE;
 
     let remaining_size = buf.len();
-    let remaining_grain_size;
+    let r;
 
     match &mut extent.storage {
         ExtentStorage::Sparse(storage) => {
             grain_size = storage.grain_size * SECTOR_SIZE;
 
-            remaining_grain_size = if grain_size > 0 {
+            r = if grain_size > 0 {
                 remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
             }
             else {
@@ -430,10 +430,9 @@ fn read_storage(
 
             if !read_sparse(
                 offset,
-                remaining_grain_size,
                 is_last,
                 storage,
-                &mut buf[..remaining_grain_size]
+                &mut buf[..r]
             )?
             {
                 // not found, check in next file
@@ -443,7 +442,7 @@ fn read_storage(
         ExtentStorage::Flat(storage) => {
             // TODO: can this possibly be right? why does the
             // grain size matter for non-grained extents?
-            remaining_grain_size = if grain_size > 0 {
+            r = if grain_size > 0 {
                 remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
             }
             else {
@@ -454,19 +453,18 @@ fn read_storage(
             read_flat(
                 local_offset,
                 storage,
-                &mut buf[..remaining_grain_size]
+                &mut buf[..r]
             )?;
         },
         ExtentStorage::Zero => todo!("ZERO support")
     }
 
     // look for next piece of data from the first extent descriptor
-    Ok((Some(remaining_grain_size), grain_size))
+    Ok((Some(r), grain_size))
 }
 
 fn read_sparse(
     offset: u64,
-    remaining_grain_size: usize,
     is_last: bool,
     storage: &mut SparseStorage,
     buf: &mut [u8]
@@ -512,7 +510,7 @@ fn read_sparse(
 
                 buf.clone_from_slice(
                     &grain_data[grain_data_offset
-                        ..grain_data_offset + remaining_grain_size],
+                        ..grain_data_offset + buf.len()],
                 );
             }
             Ok(true)
