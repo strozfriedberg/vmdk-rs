@@ -430,7 +430,6 @@ fn read_storage(
 
             if !read_sparse(
                 offset,
-                grain_size,
                 remaining_grain_size,
                 is_last,
                 storage,
@@ -467,7 +466,6 @@ fn read_storage(
 
 fn read_sparse(
     offset: u64,
-    grain_size: u64,
     remaining_grain_size: usize,
     is_last: bool,
     storage: &mut SparseStorage,
@@ -475,7 +473,7 @@ fn read_sparse(
 ) -> Result<bool, ReadError>
 {
     // return value is whether we filled the buffer
-
+    let grain_size = storage.grain_size * SECTOR_SIZE;
     let grain_index = offset / grain_size;
 
     match storage.grain_table.get(&grain_index) {
