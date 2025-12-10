@@ -350,19 +350,28 @@ impl VmdkReader {
     pub fn read_at_offset(
         &mut self,
         mut offset: u64,
-        buf: &mut [u8]
+        mut buf: &mut [u8]
     ) -> Result<usize, ReadError>
     {
-        if offset > self.image_size {
+        // don't start reading past the end
+        let image_end = self.image_size;
+        if offset > image_end {
             return Err(ReadError::OffsetBeyondEnd(offset, self.image_size));
         }
 
-        let mut bytes_read = 0;
+        // limit the buffer to the image end
+        if offset + buf.len() as u64 > image_end {
+            buf = &mut buf[..(image_end - offset) as usize];
+        }
+
+        let buf_beg = offset;
+        let buf_end = offset + buf.len() as u64;
+
         let mut grain_size = 0;
 
         let ex_len = self.extents.len();
 
-        while bytes_read < buf.len() {
+        while offset < buf_end {
             for (ex_pos, mut ex) in self.extents.iter_mut().enumerate() {
                 let extent = extent_for_offset(&mut ex, offset)
                     .ok_or_else(|| ReadError::OffsetNotFound(offset))?;
@@ -372,7 +381,7 @@ impl VmdkReader {
                     extent,
                     grain_size,
                     ex_pos == ex_len - 1,
-                    &mut buf[bytes_read..]
+                    &mut buf
                 )?;
 
                 grain_size = gs;
@@ -380,19 +389,17 @@ impl VmdkReader {
                 match r {
                     None => continue,
                     Some(r) => {
-                        bytes_read += r;
                         offset += r as u64;
+                        buf = &mut buf[r..];
 
-                        // look for next piece of data from the first extent descriptor
+                        // look for next block from the first extent descriptor
                         break;
-
-
                     }
                 }
             }
         }
 
-        Ok(bytes_read)
+        Ok((offset - buf_beg) as usize)
     }
 }
 
@@ -401,13 +408,13 @@ fn read_storage(
     extent: &mut Extent,
     mut grain_size: u64,
     is_last: bool,
-    remaining_buf: &mut [u8]
+    buf: &mut [u8]
 ) -> Result<(Option<usize>, u64), ReadError>
 {
     // local_offset is the offset from the start of the extent
     let local_offset = offset - extent.start_sector * SECTOR_SIZE;
 
-    let remaining_size = remaining_buf.len();
+    let remaining_size = buf.len();
     let remaining_grain_size;
 
     match &mut extent.storage {
@@ -427,7 +434,7 @@ fn read_storage(
                 remaining_grain_size,
                 is_last,
                 storage,
-                &mut remaining_buf[..remaining_grain_size]
+                &mut buf[..remaining_grain_size]
             )?
             {
                 // not found, check in next file
@@ -448,7 +455,7 @@ fn read_storage(
             read_flat(
                 local_offset,
                 storage,
-                &mut remaining_buf[..remaining_grain_size]
+                &mut buf[..remaining_grain_size]
             )?;
         },
         ExtentStorage::Zero => todo!("ZERO support")
