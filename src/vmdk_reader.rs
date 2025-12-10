@@ -411,21 +411,23 @@ fn read_storage(
     buf: &mut [u8]
 ) -> Result<(Option<usize>, u64), ReadError>
 {
-    // local_offset is the offset from the start of the extent
-    let local_offset = offset - extent.start_sector * SECTOR_SIZE;
+    // offset_in_extent is offset relative to the start of the extent
+    let offset_in_extent = offset - extent.start_sector * SECTOR_SIZE;
 
-    let remaining_size = buf.len();
+    let buf_len = buf.len();
     let r;
+
+    eprintln!("{grain_size}");
 
     match &mut extent.storage {
         ExtentStorage::Sparse(storage) => {
             grain_size = storage.grain_size * SECTOR_SIZE;
 
             r = if grain_size > 0 {
-                remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
+                buf_len.min((grain_size - (offset_in_extent % grain_size)) as usize)
             }
             else {
-                remaining_size
+                buf_len
             };
 
             if !read_sparse(
@@ -443,15 +445,15 @@ fn read_storage(
             // TODO: can this possibly be right? why does the
             // grain size matter for non-grained extents?
             r = if grain_size > 0 {
-                remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
+                buf_len.min((grain_size - (offset_in_extent % grain_size)) as usize)
             }
             else {
-                remaining_size
+                buf_len
             };
 
             // FLAT, VMFS
             read_flat(
-                local_offset,
+                offset_in_extent,
                 storage,
                 &mut buf[..r]
             )?;
@@ -493,14 +495,13 @@ fn read_sparse(
             }
             else {
                 let seek_pos = *sector_num * SECTOR_SIZE;
-                storage.file
-                    .seek(SeekFrom::Start(seek_pos))?;
+                storage.file.seek(SeekFrom::Start(seek_pos))?;
 
+                // read whole grain
                 let grain_data = if storage.has_compressed_grain {
                     read_and_decompress_grain(&mut storage.file, grain_index)?
                 }
                 else {
-                    // calculate real sector and read whole grain
                     let mut data = vec![0u8; grain_size as usize];
                     storage.file.read_exact(&mut data)?;
                     data
