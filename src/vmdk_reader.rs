@@ -8,9 +8,11 @@ use s3::{
     region::Region
 };
 use std::{
+    collections::BTreeMap,
     fmt::Debug,
     fs::{self, File},
     io::{self, BufReader, BufRead, Read, Seek, SeekFrom},
+    ops::Bound::{Included, Excluded},
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex}
 };
@@ -284,6 +286,78 @@ fn handle_image<T: AsRef<Path>>(
     Ok((extents, next_fn))
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct FakeExtent {
+    pub start_sector: u64,
+    pub sectors: u64
+}
+
+fn insert_span<T: Clone + Debug + PartialEq>(
+    mut sbeg: u64,
+    send: u64,
+    val: T,
+    map: &mut BTreeMap<u64, (u64, T)>
+)
+{
+    loop {
+        // find span starting not less than sbeg
+        let lb = map.range(..=sbeg).last();
+
+        if let Some((&lbeg, &(lend, ref lv))) = lb {
+            if sbeg < lend {
+                // lbeg <= sbeg < lend
+                if send <= lend {
+                    // lbeg <= sbeg < send <= lend
+                    // [sbeg, send) is already covered
+                    return;
+                }
+                else {
+                    // lbeg <= sbeg <= lend < send
+                    // restrict span start to lend
+                    sbeg = lend;
+                    continue;
+                }
+            }
+            else if sbeg == lend && val == *lv {
+                // merge (eventually) with same-valued prev span
+                sbeg = lbeg;
+            }
+        }
+
+        // find next span starting after sbeg
+        let ub = map.range((Excluded(sbeg), Included(u64::MAX))).next();
+
+        if let Some((&ubeg, &(uend, ref uv))) = ub && ubeg <= send {
+            // sbeg < ubeg <= send
+
+            if *uv == val {
+                // merge with same-valued next span
+                map.remove(&ubeg);
+                map.insert(sbeg, (uend, val.clone()));
+            }
+            else {
+                // insert up to different-valued next span
+                map.insert(sbeg, (ubeg, val.clone()));
+            };
+
+            if uend < send {
+                // resume inserting the rest of span after uend
+                sbeg = uend;
+            }
+            else {
+                // we've covered the span to send, so we're done
+                return;
+            }
+        }
+        else {
+            // sbeg < send < ubeg
+            // no overlap with next span, add this span
+            map.insert(sbeg, (send, val.clone()));
+            return;
+        }
+    }
+}
+
 impl VmdkReader {
     pub fn open<T: AsRef<Path>>(
         image_path: T
@@ -301,6 +375,9 @@ impl VmdkReader {
 
         let c = DummyCache::new();
         let cache = Arc::new(Mutex::new(c));
+
+
+        let mut exmap: BTreeMap<u64, (u64, (usize, FakeExtent))> = BTreeMap::new();
 
         let mut idx = 0;
 
@@ -328,6 +405,54 @@ impl VmdkReader {
                 });
             }
 
+
+//////
+            for ex0 in &extents0 {
+                match &ex0.storage {
+                    ExtentStorage::Sparse(storage) => {
+                        // sparse storage is a collection of chunks
+                        // it need not cover the extent's whole space
+
+                        for (&goff, _) in &storage.grain_table {
+                            insert_span(
+                                goff,
+                                goff + storage.grain_size,
+                                (
+                                    idx,
+                                    FakeExtent {
+                                        start_sector: ex0.start_sector,
+                                        sectors: ex0.sectors
+                                    }
+                                ),
+                                &mut exmap
+                            );
+                        }
+                    },
+                    ExtentStorage::Flat(storage) => {
+                        // flat storage is a big block of bytes
+                        // this extent will supply every range it has
+                        // which isn't already covered
+
+                        insert_span(
+                            ex0.start_sector,
+                            ex0.start_sector + ex0.sectors,
+                            (
+                                idx,
+                                FakeExtent {
+                                    start_sector: ex0.start_sector,
+                                    sectors: ex0.sectors
+                                }
+                            ),
+                            &mut exmap
+                        );
+                    },
+                    ExtentStorage::Zero => {
+                        todo!()
+                    }
+                }
+            }
+//////
+
             idx += extents0.len();
             extents.push(extents0);
 
@@ -337,6 +462,11 @@ impl VmdkReader {
                 None => break size0
             }
         };
+
+        for (off, (end, (idx, ex))) in exmap {
+            eprintln!("[{off}, {end}): {idx} {:?}", ex);
+        }
+        eprintln!("");
 
         Ok(Self {
             image_path: image_path.as_ref().into(),
@@ -413,11 +543,10 @@ fn read_storage(
 {
     // offset_in_extent is offset relative to the start of the extent
     let offset_in_extent = offset - extent.start_sector * SECTOR_SIZE;
+    let extent_end = (extent.start_sector + extent.sectors) * SECTOR_SIZE;
 
     let buf_len = buf.len();
     let r;
-
-    eprintln!("{grain_size}");
 
     match &mut extent.storage {
         ExtentStorage::Sparse(storage) => {
@@ -442,8 +571,6 @@ fn read_storage(
             }
         },
         ExtentStorage::Flat(storage) => {
-            // TODO: can this possibly be right? why does the
-            // grain size matter for non-grained extents?
             r = if grain_size > 0 {
                 buf_len.min((grain_size - (offset_in_extent % grain_size)) as usize)
             }
@@ -678,5 +805,133 @@ Bogus crap
                 )
             }
         ));
+    }
+
+    #[test]
+    fn test_insert_span_one() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 10, 0, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [ (0, (10, 0)) ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_covered_exact_one() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 10, 0, &mut m);
+        insert_span(0, 10, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [ (0, (10, 0)) ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_covered_subinterval_one() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 10, 0, &mut m);
+        insert_span(1, 9, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [ (0, (10, 0)) ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_covered_subinterval_two() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 5, 0, &mut m);
+        insert_span(5, 10, 0, &mut m);
+        insert_span(1, 9, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (10, 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_overlap_before() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(4, 10, 0, &mut m);
+        insert_span(0, 5, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (4, 1)),
+                (4, (10, 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_overlap_middle() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(4, 6, 0, &mut m);
+        insert_span(0, 10, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (4, 1)),
+                (4, (6, 0)),
+                (6, (10, 1))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_overlap_after() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 5, 0, &mut m);
+        insert_span(4, 10, 1, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (5, 0)),
+                (5, (10, 1))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_merge_before() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(5, 10, 0, &mut m);
+        insert_span(0, 5, 0, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (10, 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_merge_middle() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(4, 6, 0, &mut m);
+        insert_span(0, 10, 0, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (10, 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_insert_span_merge_after() {
+        let mut m: BTreeMap<u64, (u64, u64)> = BTreeMap::new();
+        insert_span(0, 5, 0, &mut m);
+        insert_span(5, 10, 0, &mut m);
+        assert_eq!(
+            m.iter().map(|(&x, &(y, z))| (x, (y, z))).collect::<Vec<_>>(),
+            [
+                (0, (10, 0))
+            ]
+        );
     }
 }
