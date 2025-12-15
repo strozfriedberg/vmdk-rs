@@ -466,7 +466,7 @@ impl VmdkReader {
                         // sparse storage is a collection of chunks
                         // it need not cover the extent's whole space
 
-                        for (&goff, _) in &storage.grain_table {
+                        for &goff in storage.grain_table.keys() {
                             insert_span(
                                 goff,
                                 goff + storage.grain_size,
@@ -572,8 +572,6 @@ impl VmdkReader {
 
         while offset < end {
             let span = self.spans.get(i).unwrap();
-
-            let span_start = span.0 * SECTOR_SIZE;
 
             let span_end = if i < span_count - 1 {
                 span.1.0 * SECTOR_SIZE
