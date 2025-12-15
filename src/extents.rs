@@ -194,7 +194,7 @@ fn filename_from_ed(ed: &ExtentDescription) -> &str {
         ExtentDescriptionInner::Sparse { filename } |
         ExtentDescriptionInner::Flat { filename, .. } |
         ExtentDescriptionInner::Vmfs { filename } |
-        ExtentDescriptionInner::VmfsSparse { filename } => &filename,
+        ExtentDescriptionInner::VmfsSparse { filename } => filename,
         _ => todo!("TODO: {:?} support", ed.kind)
     }
 }
