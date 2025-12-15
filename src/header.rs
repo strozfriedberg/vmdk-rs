@@ -111,9 +111,9 @@ pub enum FileType {
 }
 
 pub fn signature_to_file_type(sig: &[u8; 4]) -> Option<FileType> {
-    match sig {
-        &COWD_SIGNATURE => Some(FileType::Cowd),
-        &VMDK_SIGNATURE => Some(FileType::Vmdk),
+    match *sig {
+        COWD_SIGNATURE => Some(FileType::Cowd),
+        VMDK_SIGNATURE => Some(FileType::Vmdk),
         _ => None
     }
 }
