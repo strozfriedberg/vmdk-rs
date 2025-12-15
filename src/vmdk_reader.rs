@@ -39,8 +39,9 @@ const SECTOR_SIZE: u64 = 512;
 pub struct VmdkReader {
     pub image_path: PathBuf,
     pub image_size: u64,
-    extents: Vec<Vec<Extent>>,
 
+    spans: Vec<(u64, (u64, usize))>,
+    extents: Vec<Extent>,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>
 }
@@ -50,7 +51,7 @@ impl Debug for VmdkReader {
         f.debug_struct("VmdkReader")
             .field("image_path", &self.image_path)
             .field("image_size", &self.image_size)
-            .field("extents", &self.extents)
+            .field("spans", &self.spans)
             .finish()
     }
 }
@@ -286,10 +287,60 @@ fn handle_image<T: AsRef<Path>>(
     Ok((extents, next_fn))
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct FakeExtent {
-    pub start_sector: u64,
-    pub sectors: u64
+fn remove_span(
+    mut sbeg: u64,
+    send: u64,
+    map: &mut BTreeMap<u64, u64>
+)
+{
+    loop {
+        // find span starting not less than sbeg
+        let lb = map.range(..=sbeg).last();
+
+        if let Some((&lbeg, &lend)) = lb {
+            // lbeg <= sbeg < lend
+            if sbeg < lend {
+                // remove [sbeg, min(lend, send))
+
+                if lbeg < sbeg {
+                    map.insert(lbeg, sbeg);
+                }
+                else {
+                    map.remove(&lbeg);
+                }
+
+                if send < lend {
+                    map.insert(send, lend);
+                    return;
+                }
+                else if send == lend {
+                    return;
+                }
+                else {
+                    sbeg = lend;
+                }
+            }
+        }
+
+        let ub = map.range((Excluded(sbeg), Included(u64::MAX))).next();
+
+        if let Some((&ubeg, &uend)) = ub && ubeg <= send {
+            // sbeg < ubeg <= send
+
+            map.remove(&ubeg);
+
+            if send < uend {
+                map.insert(send, uend);
+                return;
+            }
+            else {
+                sbeg = uend;
+            }
+        }
+        else {
+            return;
+        }
+    }
 }
 
 fn insert_span<T: Clone + Debug + PartialEq>(
@@ -364,7 +415,6 @@ impl VmdkReader {
     ) -> Result<Self, OpenError>
     {
         let mut image_size = None;
-        let mut extents = vec![];
         let mut current_fn = PathBuf::from(image_path.as_ref());
 
         let runtime = Arc::new(
@@ -376,13 +426,13 @@ impl VmdkReader {
         let c = DummyCache::new();
         let cache = Arc::new(Mutex::new(c));
 
-
-        let mut exmap: BTreeMap<u64, (u64, (usize, FakeExtent))> = BTreeMap::new();
-
         let mut idx = 0;
+        let mut spans: BTreeMap<u64, (u64, usize)> = BTreeMap::new();
+        let mut uncovered: BTreeMap<u64, u64> = BTreeMap::new();
+        let mut exts = vec![];
 
         let image_size = loop {
-            let (extents0, next_fn) = handle_image(
+            let (extents, next_fn) = handle_image(
                 &current_fn,
                 idx,
                 cache.clone(),
@@ -390,25 +440,28 @@ impl VmdkReader {
             )?;
 
             // size for all images must match
-            let size0 = extents0.iter()
+            let size = extents.iter()
                 .fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
 
             if image_size.is_none() {
-                image_size = Some(size0);
+                image_size = Some(size);
+                let sec_end = size / SECTOR_SIZE + (if size % SECTOR_SIZE > 0 { 1 } else { 0 });
+                uncovered.insert(0, sec_end);
             }
-            else if let Some(s) = image_size && s != size0 {
+            else if let Some(s) = image_size && s != size {
                 return Err(OpenError {
                     path: current_fn,
                     kind: OpenErrorKind::BadParentExtentDescriptorSize(
-                        s, size0
+                        s, size
                     )
                 });
             }
 
+            // add the extents for this image to the span map
+            for ex in extents {
+                idx += 1;
 
-//////
-            for ex0 in &extents0 {
-                match &ex0.storage {
+                match &ex.storage {
                     ExtentStorage::Sparse(storage) => {
                         // sparse storage is a collection of chunks
                         // it need not cover the extent's whole space
@@ -417,61 +470,68 @@ impl VmdkReader {
                             insert_span(
                                 goff,
                                 goff + storage.grain_size,
-                                (
-                                    idx,
-                                    FakeExtent {
-                                        start_sector: ex0.start_sector,
-                                        sectors: ex0.sectors
-                                    }
-                                ),
-                                &mut exmap
+                                exts.len(),
+                                &mut spans
                             );
+                            remove_span(
+                                goff,
+                                goff + storage.grain_size,
+                                &mut uncovered
+                            )
                         }
                     },
-                    ExtentStorage::Flat(storage) => {
+                    ExtentStorage::Flat(_) => {
                         // flat storage is a big block of bytes
                         // this extent will supply every range it has
                         // which isn't already covered
 
                         insert_span(
-                            ex0.start_sector,
-                            ex0.start_sector + ex0.sectors,
-                            (
-                                idx,
-                                FakeExtent {
-                                    start_sector: ex0.start_sector,
-                                    sectors: ex0.sectors
-                                }
-                            ),
-                            &mut exmap
+                            ex.start_sector,
+                            ex.start_sector + ex.sectors,
+                            exts.len(),
+                            &mut spans
+                        );
+                        remove_span(
+                            ex.start_sector,
+                            ex.start_sector + ex.sectors,
+                            &mut uncovered
                         );
                     },
                     ExtentStorage::Zero => {
                         todo!()
                     }
                 }
-            }
-//////
 
-            idx += extents0.len();
-            extents.push(extents0);
+                exts.push(ex);
+            }
 
             // keep going if we are not at the end of the image chain
             match next_fn {
                 Some(next_fn) => current_fn.set_file_name(next_fn),
-                None => break size0
+                None => break size
             }
         };
 
-        for (off, (end, (idx, ex))) in exmap {
-            eprintln!("[{off}, {end}): {idx} {:?}", ex);
+        if !uncovered.is_empty() {
+            // TODO: fill missing spans with zeros?
+
+            for u in &uncovered {
+                eprintln!("uncovered [{},{})", u.0, u.1);
+            }
         }
-        eprintln!("");
+
+        let spans = spans.into_iter()
+            .collect::<Vec<_>>();
+
+        for s in &spans {
+            eprintln!("[{},{}) {}", s.0, s.1.0, s.1.1);
+        }
 
         Ok(Self {
             image_path: image_path.as_ref().into(),
             image_size,
-            extents,
+            spans,
+            extents: exts,
             cache,
             runtime
         })
@@ -483,137 +543,88 @@ impl VmdkReader {
         mut buf: &mut [u8]
     ) -> Result<usize, ReadError>
     {
+        let beg = offset;
+
         // don't start reading past the end
         let image_end = self.image_size;
-        if offset > image_end {
-            return Err(ReadError::OffsetBeyondEnd(offset, self.image_size));
+        if beg > image_end {
+            return Err(ReadError::OffsetBeyondEnd(beg, self.image_size));
         }
 
         // limit the buffer to the image end
-        if offset + buf.len() as u64 > image_end {
-            buf = &mut buf[..(image_end - offset) as usize];
+        if beg + buf.len() as u64 > image_end {
+            buf = &mut buf[..(image_end - beg) as usize];
         }
 
-        let buf_beg = offset;
-        let buf_end = offset + buf.len() as u64;
+        let mut i = match self.spans
+            .binary_search_by_key(&(beg / SECTOR_SIZE), |e| e.0)
+        {
+            Ok(i) => i,
+            // 0 is impossible as an insertion point because
+            // there must be a span staring at 0
+            Err(0) => unreachable!(),
+            Err(i) => i - 1
+        };
 
-        let mut grain_size = 0;
+        let end = beg + buf.len() as u64;
 
-        let ex_len = self.extents.len();
+        let span_count = self.spans.len();
 
-        while offset < buf_end {
-            for (ex_pos, mut ex) in self.extents.iter_mut().enumerate() {
-                let extent = extent_for_offset(&mut ex, offset)
-                    .ok_or_else(|| ReadError::OffsetNotFound(offset))?;
+        while offset < end {
+            let span = self.spans.get(i).unwrap();
 
-                let (r, gs) = read_storage(
-                    offset,
-                    extent,
-                    grain_size,
-                    ex_pos == ex_len - 1,
-                    &mut buf
-                )?;
+            let span_start = span.0 * SECTOR_SIZE;
 
-                grain_size = gs;
+            let span_end = if i < span_count - 1 {
+                span.1.0 * SECTOR_SIZE
+            }
+            else {
+                image_end
+            };
 
-                match r {
-                    None => continue,
-                    Some(r) => {
-                        offset += r as u64;
-                        buf = &mut buf[r..];
+            let r = ((span_end - offset) as usize).min(buf.len());
 
-                        // look for next block from the first extent descriptor
-                        break;
-                    }
-                }
+            let ex = &mut self.extents[span.1.1];
+
+            let r = match &mut ex.storage {
+                &mut ExtentStorage::Sparse(ref mut storage) =>
+                    read_sparse(offset, storage, &mut buf[..r])?,
+                &mut ExtentStorage::Flat(ref mut storage) => {
+                    let offset_in_extent = offset - ex.start_sector * SECTOR_SIZE;
+                    read_flat(offset_in_extent, storage, &mut buf[..r])?
+                },
+                ExtentStorage::Zero => todo!("ZERO support")
+            };
+
+            offset += r as u64;
+            buf = &mut buf[r..];
+
+            if offset >= span_end {
+                // advance to the next span to read more
+                i += 1;
             }
         }
 
-        Ok((offset - buf_beg) as usize)
+        Ok((end - beg) as usize)
     }
-}
-
-fn read_storage(
-    offset: u64,
-    extent: &mut Extent,
-    mut grain_size: u64,
-    is_last: bool,
-    buf: &mut [u8]
-) -> Result<(Option<usize>, u64), ReadError>
-{
-    // offset_in_extent is offset relative to the start of the extent
-    let offset_in_extent = offset - extent.start_sector * SECTOR_SIZE;
-    let extent_end = (extent.start_sector + extent.sectors) * SECTOR_SIZE;
-
-    let buf_len = buf.len();
-    let r;
-
-    match &mut extent.storage {
-        ExtentStorage::Sparse(storage) => {
-            grain_size = storage.grain_size * SECTOR_SIZE;
-
-            r = if grain_size > 0 {
-                buf_len.min((grain_size - (offset_in_extent % grain_size)) as usize)
-            }
-            else {
-                buf_len
-            };
-
-            if !read_sparse(
-                offset,
-                is_last,
-                storage,
-                &mut buf[..r]
-            )?
-            {
-                // not found, check in next file
-                return Ok((None, grain_size));
-            }
-        },
-        ExtentStorage::Flat(storage) => {
-            r = if grain_size > 0 {
-                buf_len.min((grain_size - (offset_in_extent % grain_size)) as usize)
-            }
-            else {
-                buf_len
-            };
-
-            // FLAT, VMFS
-            read_flat(
-                offset_in_extent,
-                storage,
-                &mut buf[..r]
-            )?;
-        },
-        ExtentStorage::Zero => todo!("ZERO support")
-    }
-
-    // look for next piece of data from the first extent descriptor
-    Ok((Some(r), grain_size))
 }
 
 fn read_sparse(
     offset: u64,
-    is_last: bool,
     storage: &mut SparseStorage,
-    buf: &mut [u8]
-) -> Result<bool, ReadError>
+    mut buf: &mut [u8]
+) -> Result<usize, ReadError>
 {
-    // return value is whether we filled the buffer
     let grain_size = storage.grain_size * SECTOR_SIZE;
     let grain_index = offset / grain_size;
+    let grain_data_offset = (offset % grain_size) as usize;
+
+    buf = &mut buf[..(grain_size as usize - grain_data_offset)];
 
     match storage.grain_table.get(&grain_index) {
         None => {
-            if is_last {
-                // last vmdk file, zero-fill
-                buf.fill(0);
-                Ok(true)
-            }
-            else {
-                // check in next
-                Ok(false)
-            }
+            // last vmdk file, zero-fill
+            buf.fill(0);
         },
         Some(sector_num) => {
             if storage.zeroed_grain_table_entry && *sector_num == 1 {
@@ -634,30 +645,29 @@ fn read_sparse(
                     data
                 };
 
-                let grain_data_offset = (offset % grain_size) as usize;
 
                 buf.clone_from_slice(
                     &grain_data[grain_data_offset
                         ..grain_data_offset + buf.len()],
                 );
             }
-            Ok(true)
         }
     }
+    Ok(buf.len())
 }
 
 fn read_flat(
     local_offset: u64,
     storage: &mut FlatStorage,
     buf: &mut [u8]
-) -> Result<(), ReadError>
+) -> Result<usize, ReadError>
 {
     // FLAT, VMFS
     let f = &mut storage.file;
     // NB: only ExtentKind::Flat has nonzero offset
     f.seek(SeekFrom::Start(local_offset + storage.offset))?;
     f.read_exact(buf)?;
-    Ok(())
+    Ok(buf.len())
 }
 
 #[cfg(test)]
