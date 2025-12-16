@@ -513,22 +513,24 @@ fn read_sparse(
                 buf.fill(0);
             }
             else {
-                let seek_pos = *sector_num * SECTOR_SIZE;
-                storage.file.seek(SeekFrom::Start(seek_pos))?;
+                let grain_start = *sector_num * SECTOR_SIZE;
 
-                // read whole grain
-                let grain_data = if storage.has_compressed_grain {
-                    read_and_decompress_grain(&mut storage.file, grain_index)?
+                if storage.has_compressed_grain {
+                    storage.file.seek(SeekFrom::Start(grain_start))?;
+
+                    let grain_data = read_and_decompress_grain(
+                        &mut storage.file,
+                        grain_index
+                    )?;
+
+                    buf.clone_from_slice(
+                        &grain_data[grain_data_offset..grain_data_offset + r],
+                    );
                 }
                 else {
-                    let mut data = vec![0u8; grain_size as usize];
-                    storage.file.read_exact(&mut data)?;
-                    data
-                };
-
-                buf.clone_from_slice(
-                    &grain_data[grain_data_offset..grain_data_offset + r],
-                );
+                    storage.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
+                    storage.file.read_exact(&mut buf)?;
+                }
             }
         }
     }
