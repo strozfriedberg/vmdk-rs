@@ -21,6 +21,7 @@ mod generated;
 mod header;
 mod placeholdersource;
 mod s3source;
+mod spans;
 
 #[cfg(test)]
 mod test {
