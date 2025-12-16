@@ -498,7 +498,9 @@ fn read_sparse(
     let grain_index = offset / grain_size;
     let grain_data_offset = (offset % grain_size) as usize;
 
-    buf = &mut buf[..(grain_size as usize - grain_data_offset)];
+
+    let r = (grain_size as usize - grain_data_offset).min(buf.len());
+    buf = &mut buf[..r];
 
     match storage.grain_table.get(&grain_index) {
         None => {
@@ -525,8 +527,7 @@ fn read_sparse(
                 };
 
                 buf.clone_from_slice(
-                    &grain_data[grain_data_offset
-                        ..grain_data_offset + buf.len()],
+                    &grain_data[grain_data_offset..grain_data_offset + r],
                 );
             }
         }
