@@ -63,10 +63,8 @@ fn main() {
     let mut ksy_files: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(env::current_dir().unwrap().join("ksy")) {
         for entry in entries.flatten() {
-            if let Some(ext) = entry.path().extension() {
-                if ext == "ksy" {
-                    ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
-                }
+            if let Some(ext) = entry.path().extension() && ext == "ksy" {
+                ksy_files.push(entry.path().as_path().to_string_lossy().to_string());
             }
         }
     }
