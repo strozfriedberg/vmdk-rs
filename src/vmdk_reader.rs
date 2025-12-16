@@ -309,7 +309,7 @@ impl VmdkReader {
         let mut uncovered: BTreeMap<u64, u64> = BTreeMap::new();
         let mut extents = vec![];
 
-        let image_size = loop {
+        let image_size = 'img_loop: loop {
             let (img_extents, parent_fn) = handle_image(
                 &current_fn,
                 idx,
@@ -398,6 +398,11 @@ impl VmdkReader {
 
                         extents.push(ex);
                     }
+                }
+
+                // stop if we have extents for all spans
+                if uncovered.is_empty() {
+                    break 'img_loop size;
                 }
             }
 
