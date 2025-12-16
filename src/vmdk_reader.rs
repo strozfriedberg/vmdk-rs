@@ -337,8 +337,6 @@ impl VmdkReader {
 
             // add the extents for this image to the span map
             for ex in img_extents {
-                idx += 1;
-
                 match &ex.storage {
                     ExtentStorage::Sparse(storage) => {
                         // Sparse storage is a collection of blocks of bytes.
@@ -377,13 +375,14 @@ impl VmdkReader {
                             ex.start_sector + ex.sectors,
                             &mut uncovered
                         );
+
+                        extents.push(ex);
+                        idx += 1;
                     },
                     ExtentStorage::Zero => {
                         todo!()
                     }
                 }
-
-                extents.push(ex);
             }
 
             // keep going if we are not at the end of the image chain
