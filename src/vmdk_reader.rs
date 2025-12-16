@@ -380,7 +380,23 @@ impl VmdkReader {
                         idx += 1;
                     },
                     ExtentStorage::Zero => {
-                        todo!()
+                        // Zero storage is a block of zeros.
+                        // This extent will supply every range it has
+                        // which isn't already covered.
+
+                        insert_span(
+                            ex.start_sector,
+                            ex.start_sector + ex.sectors,
+                            extents.len(),
+                            &mut spans
+                        );
+                        remove_span(
+                            ex.start_sector,
+                            ex.start_sector + ex.sectors,
+                            &mut uncovered
+                        );
+
+                        extents.push(ex);
                     }
                 }
             }
