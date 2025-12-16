@@ -542,6 +542,14 @@ fn read_flat(
     Ok(buf.len())
 }
 
+fn read_zero(
+    buf: &mut [u8]
+) -> usize
+{
+    buf.fill(0);
+    buf.len()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
