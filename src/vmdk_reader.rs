@@ -404,6 +404,7 @@ impl VmdkReader {
         }
 
         let spans = spans.into_iter()
+            .map(|(lb, (ub, i))| (lb * SECTOR_SIZE, (ub * SECTOR_SIZE, i)))
             .collect::<Vec<_>>();
 
         Ok(Self {
@@ -436,7 +437,7 @@ impl VmdkReader {
         }
 
         let mut i = match self.spans
-            .binary_search_by_key(&(beg / SECTOR_SIZE), |e| e.0)
+            .binary_search_by_key(&beg, |e| e.0)
         {
             Ok(i) => i,
             // 0 is impossible as an insertion point because
@@ -453,7 +454,7 @@ impl VmdkReader {
             let span = self.spans.get(i).unwrap();
 
             let span_end = if i < span_count - 1 {
-                span.1.0 * SECTOR_SIZE
+                span.1.0
             }
             else {
                 image_end
