@@ -522,7 +522,6 @@ fn read_sparse(
                     data
                 };
 
-
                 buf.clone_from_slice(
                     &grain_data[grain_data_offset
                         ..grain_data_offset + buf.len()],
@@ -530,6 +529,7 @@ fn read_sparse(
             }
         }
     }
+
     Ok(buf.len())
 }
 
