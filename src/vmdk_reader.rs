@@ -403,6 +403,7 @@ impl VmdkReader {
             }
         }
 
+        // spans are in bytes from here onward
         let spans = spans.into_iter()
             .map(|(lb, (ub, i))| (lb * SECTOR_SIZE, (ub * SECTOR_SIZE, i)))
             .collect::<Vec<_>>();
