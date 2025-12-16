@@ -115,24 +115,6 @@ fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
     None
 }
 
-fn extent_for_offset(
-    extents: &mut [Extent],
-    offset: u64
-) -> Option<&mut Extent> {
-    let sector = offset / SECTOR_SIZE;
-    let i = extents.partition_point(|ex| ex.start_sector <= sector);
-
-    match i {
-        // offset before first extent
-        0 => None,
-        // offset is in extent i - 1
-        i if sector < extents[i - 1].start_sector + extents[i - 1].sectors
-            => Some(&mut extents[i - 1]),
-        // offset is in a gap between extents i-1 and i
-        _ => None
-    }
-}
-
 // We're going off the rails on a crazy grain
 #[derive(Debug, thiserror::Error)]
 #[error("Sanity check failed for grain index {0}")]
@@ -576,105 +558,6 @@ fn read_zero(
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_extent_for_offset() {
-        let mut exts = [
-            Extent {
-                start_sector: 0,
-                sectors: 10,
-                storage: ExtentStorage::Zero
-            },
-            Extent {
-                start_sector: 10,
-                sectors: 5,
-                storage: ExtentStorage::Zero
-            },
-            Extent {
-                start_sector: 15,
-                sectors: 5,
-                storage: ExtentStorage::Zero
-            }
-        ];
-
-        // start of 0
-        assert!(matches!(
-            extent_for_offset(&mut exts, 0),
-            Some(
-                Extent {
-                    start_sector: 0,
-                    sectors: 10,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 0
-        assert!(matches!(
-            extent_for_offset(&mut exts, 9 * SECTOR_SIZE),
-            Some(
-                Extent {
-                    start_sector: 0,
-                    sectors: 10,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // start of 1
-        assert!(matches!(
-            extent_for_offset(&mut exts, 10 * SECTOR_SIZE),
-            Some(
-                Extent {
-                    start_sector: 10,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 1
-        assert!(matches!(
-            extent_for_offset(&mut exts, 14 * SECTOR_SIZE),
-            Some(
-                Extent {
-                    start_sector: 10,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // start of 2
-        assert!(matches!(
-            extent_for_offset(&mut exts, 15 * SECTOR_SIZE),
-            Some(
-                Extent {
-                    start_sector: 15,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 2
-        assert!(matches!(
-            extent_for_offset(&mut exts, 19 * SECTOR_SIZE),
-            Some(
-                Extent {
-                    start_sector: 15,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // past the end
-        assert!(matches!(
-            extent_for_offset(&mut exts, 20 * SECTOR_SIZE),
-            None
-        ));
-    }
 
     #[test]
     fn test_read_descriptor_file_ok() {
