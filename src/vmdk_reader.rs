@@ -307,10 +307,10 @@ impl VmdkReader {
         let mut idx = 0;
         let mut spans: BTreeMap<u64, (u64, usize)> = BTreeMap::new();
         let mut uncovered: BTreeMap<u64, u64> = BTreeMap::new();
-        let mut exts = vec![];
+        let mut extents = vec![];
 
         let image_size = loop {
-            let (extents, next_fn) = handle_image(
+            let (img_extents, parent_fn) = handle_image(
                 &current_fn,
                 idx,
                 cache.clone(),
@@ -318,7 +318,7 @@ impl VmdkReader {
             )?;
 
             // size for all images must match
-            let size = extents.iter()
+            let size = img_extents.iter()
                 .fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
 
             if image_size.is_none() {
@@ -336,7 +336,7 @@ impl VmdkReader {
             }
 
             // add the extents for this image to the span map
-            for ex in extents {
+            for ex in img_extents {
                 idx += 1;
 
                 match &ex.storage {
@@ -348,7 +348,7 @@ impl VmdkReader {
                             insert_span(
                                 goff,
                                 goff + storage.grain_size,
-                                exts.len(),
+                                extents.len(),
                                 &mut spans
                             );
                             remove_span(
@@ -366,7 +366,7 @@ impl VmdkReader {
                         insert_span(
                             ex.start_sector,
                             ex.start_sector + ex.sectors,
-                            exts.len(),
+                            extents.len(),
                             &mut spans
                         );
                         remove_span(
@@ -380,12 +380,12 @@ impl VmdkReader {
                     }
                 }
 
-                exts.push(ex);
+                extents.push(ex);
             }
 
             // keep going if we are not at the end of the image chain
-            match next_fn {
-                Some(next_fn) => current_fn.set_file_name(next_fn),
+            match parent_fn {
+                Some(parent_fn) => current_fn.set_file_name(parent_fn),
                 None => break size
             }
         };
@@ -401,15 +401,11 @@ impl VmdkReader {
         let spans = spans.into_iter()
             .collect::<Vec<_>>();
 
-        for s in &spans {
-            eprintln!("[{},{}) {}", s.0, s.1.0, s.1.1);
-        }
-
         Ok(Self {
             image_path: image_path.as_ref().into(),
             image_size,
             spans,
-            extents: exts,
+            extents,
             cache,
             runtime
         })
