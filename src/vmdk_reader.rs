@@ -341,8 +341,8 @@ impl VmdkReader {
 
                 match &ex.storage {
                     ExtentStorage::Sparse(storage) => {
-                        // sparse storage is a collection of chunks
-                        // it need not cover the extent's whole space
+                        // Sparse storage is a collection of blocks of bytes.
+                        // It need not cover the extent's whole space.
 
                         for &goff in storage.grain_table.keys() {
                             insert_span(
@@ -355,13 +355,16 @@ impl VmdkReader {
                                 goff,
                                 goff + storage.grain_size,
                                 &mut uncovered
-                            )
+                            );
                         }
+
+                        extents.push(ex);
+                        idx += 1;
                     },
                     ExtentStorage::Flat(_) => {
-                        // flat storage is a big block of bytes
-                        // this extent will supply every range it has
-                        // which isn't already covered
+                        // Flat storage is a block of bytes.
+                        // This extent will supply every range it has
+                        // which isn't already covered.
 
                         insert_span(
                             ex.start_sector,
@@ -465,7 +468,7 @@ impl VmdkReader {
                     let offset_in_extent = offset - ex.start_sector * SECTOR_SIZE;
                     read_flat(offset_in_extent, storage, &mut buf[..r])?
                 },
-                ExtentStorage::Zero => todo!("ZERO support")
+                ExtentStorage::Zero => read_zero(&mut buf[..r])
             };
 
             offset += r as u64;
