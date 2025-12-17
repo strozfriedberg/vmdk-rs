@@ -1,6 +1,5 @@
 use kaitai::{BytesReader, KError, KStream, KStruct, ReadSeek};
 use std::{
-    fs::File,
     io::{Read, Seek, SeekFrom},
     ops::Deref
 };
