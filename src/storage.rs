@@ -43,10 +43,8 @@ impl ExtentStorage {
     ) -> Result<usize, ReadError>
     {
         match self {
-            &mut ExtentStorage::Sparse(ref mut storage) =>
-                storage.read(offset, buf),
-            &mut ExtentStorage::Flat(ref mut storage) =>
-                storage.read(offset, buf),
+            ExtentStorage::Sparse(storage) => storage.read(offset, buf),
+            ExtentStorage::Flat(storage) => storage.read(offset, buf),
             ExtentStorage::Zero => Ok(read_zero(buf))
         }
     }
