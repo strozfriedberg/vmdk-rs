@@ -6,7 +6,7 @@ use s3::{
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Arc, Mutex}
 };
@@ -331,6 +331,8 @@ impl VmdkReader {
             buf = &mut buf[..(image_end - beg) as usize];
         }
 
+        let end = beg + buf.len() as u64;
+
         let mut i = match self.spans
             .binary_search_by_key(&beg, |e| e.0)
         {
@@ -340,10 +342,6 @@ impl VmdkReader {
             Err(0) => unreachable!(),
             Err(i) => i - 1
         };
-
-        let end = beg + buf.len() as u64;
-
-        let span_count = self.spans.len();
 
         while offset < end {
             let span = self.spans[i];
