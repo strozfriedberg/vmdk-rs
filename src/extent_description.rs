@@ -350,6 +350,21 @@ mod test {
         );
     }
 
+    #[test]
+    fn read_extent_description_line_sesparse() {
+        let ed = r#"RW 314572800 SESPARSE "sesparse.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 314572800,
+                kind: ExtentKind::SeSparse,
+                filename: Some("sesparse.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
 /*
     #[test]
     fn read_extent_description_line_zero() {
