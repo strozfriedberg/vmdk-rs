@@ -109,15 +109,15 @@ impl SparseStorage {
 
         // NB: we know there is a grain for this index because we
         // registered it in the span map
-        let sector_num = self.grain_table.get(&grain_index)
+        let sector_num = *self.grain_table.get(&grain_index)
             .expect("index must exist");
 
-        if self.zeroed_grain_table_entry && *sector_num == 1 {
+        if self.zeroed_grain_table_entry && sector_num == 1 {
             // handle zeroed GTE
             buf.fill(0);
         }
         else {
-            let grain_start = *sector_num * SECTOR_SIZE;
+            let grain_start = sector_num * SECTOR_SIZE;
 
             if self.has_compressed_grain {
                 self.file.seek(SeekFrom::Start(grain_start))?;
