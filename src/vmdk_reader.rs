@@ -506,7 +506,7 @@ fn read_sparse(
         }
         else {
             storage.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
-            storage.file.read_exact(&mut buf)?;
+            storage.file.read_exact(buf)?;
         }
     }
 
