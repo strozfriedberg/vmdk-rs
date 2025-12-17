@@ -38,6 +38,30 @@ pub struct Extent {
     pub storage: ExtentStorage
 }
 
+impl Extent {
+    pub fn spans(&self) -> impl Iterator<Item = (u64, u64)> {
+        match &self.storage {
+            // Sparse storage is a collection of blocks of bytes.
+            // It need not cover the extent's whole space.
+            ExtentStorage::Sparse(storage) => storage.grain_table.keys()
+                .map(|goff| {
+                    // grain_size is in sectors
+                    let beg = self.start_sector + goff * storage.grain_size;
+                    let end = beg + storage.grain_size;
+                    (beg, end)
+                })
+                .collect::<Vec<_>>(),
+            // Flat and Zero storage are each a single block of bytes.
+            ExtentStorage::Flat(_) | ExtentStorage::Zero =>
+                vec![(self.start_sector, self.start_sector + self.sectors)]
+        }.into_iter()
+    }
+
+    pub fn has_file(&self) -> bool {
+        !matches!(self.storage, ExtentStorage::Zero)
+    }
+}
+
 fn read_grain_table(
     h: &mut VmdkSparseFileHeader,
     kind: ExtentKind

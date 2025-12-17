@@ -226,48 +226,16 @@ impl VmdkReader {
 
             // add the extents for this image to the span map
             for ex in img_extents {
-                match &ex.storage {
-                    ExtentStorage::Sparse(storage) => {
-                        // Sparse storage is a collection of blocks of bytes.
-                        // It need not cover the extent's whole space.
-                        for &goff in storage.grain_table.keys() {
-                            // grain_size is in sectors
-                            let beg = ex.start_sector + goff * storage.grain_size;
-                            let end = beg + storage.grain_size;
-
-                            insert_span(beg, end, extents.len(), &mut spans);
-                            remove_span(beg, end, &mut uncovered);
-                        }
-
-                        extents.push(ex);
-                        idx += 1;
-                    },
-                    ExtentStorage::Flat(_) => {
-                        // Flat storage is a block of bytes.
-                        // This extent will supply every range it has
-                        // which isn't already covered.
-                        let beg = ex.start_sector;
-                        let end = beg + ex.sectors;
-
-                        insert_span(beg, end, extents.len(), &mut spans);
-                        remove_span(beg, end, &mut uncovered);
-
-                        extents.push(ex);
-                        idx += 1;
-                    },
-                    ExtentStorage::Zero => {
-                        // Zero storage is a block of zeros.
-                        // This extent will supply every range it has
-                        // which isn't already covered.
-                        let beg = ex.start_sector;
-                        let end = beg + ex.sectors;
-
-                        insert_span(beg, end, extents.len(), &mut spans);
-                        remove_span(beg, end, &mut uncovered);
-
-                        extents.push(ex);
-                    }
+                for (beg, end) in ex.spans() {
+                    insert_span(beg, end, extents.len(), &mut spans);
+                    remove_span(beg, end, &mut uncovered);
                 }
+
+                if ex.has_file() {
+                    idx += 1;
+                }
+
+                extents.push(ex);
 
                 // stop if we have extents for all spans
                 if uncovered.is_empty() {
@@ -333,9 +301,7 @@ impl VmdkReader {
 
         let end = beg + buf.len() as u64;
 
-        let mut i = match self.spans
-            .binary_search_by_key(&beg, |e| e.0)
-        {
+        let mut i = match self.spans.binary_search_by_key(&beg, |e| e.0) {
             Ok(i) => i,
             // 0 is impossible as an insertion point because
             // there must be a span staring at 0
