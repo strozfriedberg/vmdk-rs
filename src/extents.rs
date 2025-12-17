@@ -1,7 +1,7 @@
 use kaitai::ReadSeek;
 use std::{
     collections::HashMap,
-    fs::{self, File},
+    fs,
     io::{Read, Seek, SeekFrom},
     path::Path,
     sync::{Arc, Mutex}
