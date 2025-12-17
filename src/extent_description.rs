@@ -384,11 +384,8 @@ mod test {
 /*
 TODO: extent description tests for:
     ZERO,
-    VMFSRDM,
+    VMFSRDM
     VMFSRAW
-
-    SESPARSE
-
 
 TODO: What happens if the filename has a double quote in it?
 TODO: What happens if the filename has a space in it?
