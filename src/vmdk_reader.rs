@@ -339,18 +339,11 @@ impl VmdkReader {
                         // Flat storage is a block of bytes.
                         // This extent will supply every range it has
                         // which isn't already covered.
+                        let beg = ex.start_sector;
+                        let end = beg + ex.sectors;
 
-                        insert_span(
-                            ex.start_sector,
-                            ex.start_sector + ex.sectors,
-                            extents.len(),
-                            &mut spans
-                        );
-                        remove_span(
-                            ex.start_sector,
-                            ex.start_sector + ex.sectors,
-                            &mut uncovered
-                        );
+                        insert_span(beg, end, extents.len(), &mut spans);
+                        remove_span(beg, end, &mut uncovered);
 
                         extents.push(ex);
                         idx += 1;
@@ -359,18 +352,11 @@ impl VmdkReader {
                         // Zero storage is a block of zeros.
                         // This extent will supply every range it has
                         // which isn't already covered.
+                        let beg = ex.start_sector;
+                        let end = beg + ex.sectors;
 
-                        insert_span(
-                            ex.start_sector,
-                            ex.start_sector + ex.sectors,
-                            extents.len(),
-                            &mut spans
-                        );
-                        remove_span(
-                            ex.start_sector,
-                            ex.start_sector + ex.sectors,
-                            &mut uncovered
-                        );
+                        insert_span(beg, end, extents.len(), &mut spans);
+                        remove_span(beg, end, &mut uncovered);
 
                         extents.push(ex);
                     }
