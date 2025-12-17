@@ -439,17 +439,9 @@ impl VmdkReader {
         let span_count = self.spans.len();
 
         while offset < end {
-            let span = self.spans.get(i).unwrap();
-
-            let span_end = if i < span_count - 1 {
-                span.1.0
-            }
-            else {
-                image_end
-            };
-
+            let span = self.spans[i];
+            let span_end = span.1.0;
             let r = ((span_end - offset) as usize).min(buf.len());
-
             let ex = &mut self.extents[span.1.1];
 
             let r = match &mut ex.storage {
