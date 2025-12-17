@@ -323,19 +323,13 @@ impl VmdkReader {
                     ExtentStorage::Sparse(storage) => {
                         // Sparse storage is a collection of blocks of bytes.
                         // It need not cover the extent's whole space.
-
                         for &goff in storage.grain_table.keys() {
-                            insert_span(
-                                goff,
-                                goff + storage.grain_size,
-                                extents.len(),
-                                &mut spans
-                            );
-                            remove_span(
-                                goff,
-                                goff + storage.grain_size,
-                                &mut uncovered
-                            );
+                            // grain_size is in sectors
+                            let beg = ex.start_sector + goff * storage.grain_size;
+                            let end = beg + storage.grain_size;
+
+                            insert_span(beg, end, extents.len(), &mut spans);
+                            remove_span(beg, end, &mut uncovered);
                         }
 
                         extents.push(ex);
@@ -395,12 +389,19 @@ impl VmdkReader {
             }
         };
 
-        if !uncovered.is_empty() {
-            // TODO: fill missing spans with zeros?
+        // fill missing spans with zeros
+        for (lb, ub) in uncovered {
+            debug!("zero-filling uncovered span [{}, {})", lb, ub);
 
-            for u in &uncovered {
-                eprintln!("uncovered [{},{})", u.0, u.1);
-            }
+            let ex = Extent {
+                start_sector: lb,
+                sectors: ub - lb,
+                storage: ExtentStorage::Zero
+            };
+
+            insert_span(lb, ub, extents.len(), &mut spans);
+
+            extents.push(ex);
         }
 
         // spans are in bytes from here onward
