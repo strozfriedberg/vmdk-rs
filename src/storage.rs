@@ -42,15 +42,13 @@ impl ExtentStorage {
         buf: &mut [u8]
     ) -> Result<usize, ReadError>
     {
-        Ok(match self {
+        match self {
             &mut ExtentStorage::Sparse(ref mut storage) =>
-                read_sparse(offset, storage, buf)?,
-            &mut ExtentStorage::Flat(ref mut storage) => {
-                let offset_in_extent = offset - storage.offset * SECTOR_SIZE;
-                read_flat(offset_in_extent, storage, buf)?
-            },
-            ExtentStorage::Zero => read_zero(buf)
-        })
+                storage.read(offset, buf),
+            &mut ExtentStorage::Flat(ref mut storage) =>
+                storage.read(offset, buf),
+            ExtentStorage::Zero => Ok(read_zero(buf))
+        }
     }
 }
 
@@ -95,70 +93,70 @@ fn read_and_decompress_grain(
     Ok(decoded_data)
 }
 
-fn read_sparse(
-    offset: u64,
-    storage: &mut SparseStorage,
-    mut buf: &mut [u8]
-) -> Result<usize, ReadError>
-{
-    let grain_size = storage.grain_size * SECTOR_SIZE;
-    let grain_index = offset / grain_size;
-    let grain_data_offset = (offset % grain_size) as usize;
+impl SparseStorage {
+    fn read(
+        &mut self,
+        offset: u64,
+        mut buf: &mut [u8]
+    ) -> Result<usize, ReadError>
+    {
+        let grain_size = self.grain_size * SECTOR_SIZE;
+        let grain_index = offset / grain_size;
+        let grain_data_offset = (offset % grain_size) as usize;
 
-    let r = (grain_size as usize - grain_data_offset).min(buf.len());
-    buf = &mut buf[..r];
+        let r = (grain_size as usize - grain_data_offset).min(buf.len());
+        buf = &mut buf[..r];
 
-    // NB: we know there is a grain for this index because we
-    // registered it in the span map
-    let sector_num = storage.grain_table.get(&grain_index)
-        .expect("index must exist");
+        // NB: we know there is a grain for this index because we
+        // registered it in the span map
+        let sector_num = self.grain_table.get(&grain_index)
+            .expect("index must exist");
 
-    if storage.zeroed_grain_table_entry && *sector_num == 1 {
-        // handle zeroed GTE
-        buf.fill(0);
-    }
-    else {
-        let grain_start = *sector_num * SECTOR_SIZE;
-
-        if storage.has_compressed_grain {
-            storage.file.seek(SeekFrom::Start(grain_start))?;
-
-            let grain_data = read_and_decompress_grain(
-                &mut storage.file,
-                grain_index
-            )?;
-
-            buf.clone_from_slice(
-                &grain_data[grain_data_offset..grain_data_offset + r],
-            );
+        if self.zeroed_grain_table_entry && *sector_num == 1 {
+            // handle zeroed GTE
+            buf.fill(0);
         }
         else {
-            storage.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
-            storage.file.read_exact(buf)?;
+            let grain_start = *sector_num * SECTOR_SIZE;
+
+            if self.has_compressed_grain {
+                self.file.seek(SeekFrom::Start(grain_start))?;
+
+                let grain_data = read_and_decompress_grain(
+                    &mut self.file,
+                    grain_index
+                )?;
+
+                buf.clone_from_slice(
+                    &grain_data[grain_data_offset..grain_data_offset + r],
+                );
+            }
+            else {
+                self.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
+                self.file.read_exact(buf)?;
+            }
         }
+
+        Ok(buf.len())
     }
-
-    Ok(buf.len())
 }
 
-fn read_flat(
-    local_offset: u64,
-    storage: &mut FlatStorage,
-    buf: &mut [u8]
-) -> Result<usize, ReadError>
-{
-    // FLAT, VMFS
-    let f = &mut storage.file;
-    // NB: only ExtentKind::Flat has nonzero offset
-    f.seek(SeekFrom::Start(local_offset + storage.offset))?;
-    f.read_exact(buf)?;
-    Ok(buf.len())
+impl FlatStorage {
+    fn read(
+        &mut self,
+        offset: u64,
+        buf: &mut [u8]
+    ) -> Result<usize, ReadError>
+    {
+        // FLAT, VMFS
+        // NB: only ExtentKind::Flat may have nonzero extent offset
+        self.file.seek(SeekFrom::Start(offset - self.offset * SECTOR_SIZE))?;
+        self.file.read_exact(buf)?;
+        Ok(buf.len())
+    }
 }
 
-fn read_zero(
-    buf: &mut [u8]
-) -> usize
-{
+fn read_zero(buf: &mut [u8]) -> usize {
     buf.fill(0);
     buf.len()
 }
