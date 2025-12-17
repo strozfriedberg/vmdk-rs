@@ -4,7 +4,7 @@ use std::{
     ops::Deref
 };
 
-use crate::errors::{DeserializationError, IoError, OpenError, OpenErrorKind};
+use crate::errors::{DeserializationError, IoError, OpenErrorKind};
 use crate::generated::vmware_cowd::VmwareCowd;
 use crate::generated::vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods};
 
