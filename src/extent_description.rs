@@ -27,13 +27,14 @@ impl FromStr for AccessMode {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ExtentKind {
-    Sparse,
     Flat,
-    Zero,
+    SeSparse,
+    Sparse,
     Vmfs,
     VmfsSparse,
     VmfsRdm,
-    VmfsRaw
+    VmfsRaw,
+    Zero
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -46,13 +47,14 @@ impl FromStr for ExtentKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "SPARSE" => Ok(Self::Sparse),
             "FLAT" => Ok(Self::Flat),
-            "ZERO" => Ok(Self::Zero),
+            "SESPARSE" => Ok(Self::SeSparse),
+            "SPARSE" => Ok(Self::Sparse),
             "VMFS" => Ok(Self::Vmfs),
-            "VMFSSPARSE" => Ok(Self::VmfsSparse),
-            "VMFSRDM" => Ok(Self::VmfsRdm),
             "VMFSRAW" => Ok(Self::VmfsRaw),
+            "VMFSRDM" => Ok(Self::VmfsRdm),
+            "VMFSSPARSE" => Ok(Self::VmfsSparse),
+            "ZERO" => Ok(Self::Zero),
             _ => Err(ParseExtentKindError)
         }
     }
@@ -134,38 +136,42 @@ impl FromStr for ExtentDescriptionLine {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExtentDescriptionInner {
-    Sparse {
-        filename: String
-    },
     Flat {
         filename: String,
         offset: u64
     },
-    Zero,
+    SeSparse {
+        filename: String
+    },
+    Sparse {
+        filename: String
+    },
     Vmfs {
         filename: String
     },
-    VmfsSparse {
+    VmfsRaw {
         filename: String
     },
     VmfsRdm {
         filename: String
     },
-    VmfsRaw {
+    VmfsSparse {
         filename: String
-    }
+    },
+    Zero
 }
 
 impl From<&ExtentDescriptionInner> for ExtentKind {
     fn from(edi: &ExtentDescriptionInner) -> Self {
         match edi {
-            ExtentDescriptionInner::Sparse { .. } => ExtentKind::Sparse,
             ExtentDescriptionInner::Flat { .. } => ExtentKind::Flat,
-            ExtentDescriptionInner::Zero => ExtentKind::Zero,
+            ExtentDescriptionInner::SeSparse { .. } => ExtentKind::SeSparse,
+            ExtentDescriptionInner::Sparse { .. } => ExtentKind::Sparse,
             ExtentDescriptionInner::Vmfs { .. } => ExtentKind::Vmfs,
-            ExtentDescriptionInner::VmfsSparse { .. } => ExtentKind::VmfsSparse,
+            ExtentDescriptionInner::VmfsRaw { .. } => ExtentKind::VmfsRaw,
             ExtentDescriptionInner::VmfsRdm { .. } => ExtentKind::VmfsRdm,
-            ExtentDescriptionInner::VmfsRaw { .. } => ExtentKind::VmfsRaw
+            ExtentDescriptionInner::VmfsSparse { .. } => ExtentKind::VmfsSparse,
+            ExtentDescriptionInner::Zero => ExtentKind::Zero
         }
     }
 }
@@ -363,10 +369,11 @@ mod test {
 /*
 TODO: extent description tests for:
     ZERO,
-    VMFS,
-    VMFSSPARSE,
     VMFSRDM,
-    VMFSRAW,
+    VMFSRAW
+
+    SESPARSE
+
 
 TODO: What happens if the filename has a double quote in it?
 TODO: What happens if the filename has a space in it?
