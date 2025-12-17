@@ -27,10 +27,11 @@ use crate::{
     dummycache::DummyCache,
     errors::{InitError, OpenError, OpenErrorKind},
     filesource::FileSource,
-    extents::{Extent, ExtentStorage, FlatStorage, SparseStorage, read_extents},
+    extents::{Extent, read_extents},
     header::{check_signature, read_header},
     s3source::S3Source,
-    spans::{insert_span, remove_span}
+    spans::{insert_span, remove_span},
+    storage::{ExtentStorage, FlatStorage, SparseStorage}
 };
 
 const SECTOR_SIZE: u64 = 512;

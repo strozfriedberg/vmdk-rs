@@ -23,6 +23,7 @@ mod header;
 mod placeholdersource;
 mod s3source;
 mod spans;
+mod storage;
 
 #[cfg(test)]
 mod test {
