@@ -258,7 +258,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn read_extent_description_line_sparse() {
+    fn read_extent_description_line_sparse_rw() {
         let ed = r#"RW 4192256 SPARSE "test-f001.vmdk""#;
         assert_eq!(
             ed.parse::<ExtentDescriptionLine>().unwrap(),
@@ -267,6 +267,21 @@ mod test {
                 sectors: 4192256,
                 kind: ExtentKind::Sparse,
                 filename: Some("test-f001.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_sparse_ro() {
+        let ed = r#"RDONLY 2048 SPARSE "call-me-stream.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::RdOnly,
+                sectors: 2048,
+                kind: ExtentKind::Sparse,
+                filename: Some("call-me-stream.vmdk".into()),
                 offset: None
             }
         );
@@ -283,6 +298,36 @@ mod test {
                 kind: ExtentKind::Flat,
                 filename: Some("test-f001.vmdk".into()),
                 offset: Some(0)
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_vmfs() {
+        let ed = r#"RW 209715200 VMFS "vdisk-PhysicalDrive0-flat.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 209715200,
+                kind: ExtentKind::Vmfs,
+                filename: Some("vdisk-PhysicalDrive0-flat.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_vmfssparse() {
+        let ed = r#"RW 4096 VMFSSPARSE "vmfs_thick-000001-delta.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 4096,
+                kind: ExtentKind::VmfsSparse,
+                filename: Some("vmfs_thick-000001-delta.vmdk".into()),
+                offset: None
             }
         );
     }
