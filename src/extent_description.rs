@@ -177,6 +177,18 @@ pub struct ExtentDescription {
     pub kind: ExtentDescriptionInner
 }
 
+impl ExtentDescription {
+    pub fn filename(&self) -> &str {
+        match &self.kind {
+            ExtentDescriptionInner::Sparse { filename } |
+            ExtentDescriptionInner::Flat { filename, .. } |
+            ExtentDescriptionInner::Vmfs { filename } |
+            ExtentDescriptionInner::VmfsSparse { filename } => filename,
+            _ => todo!("TODO: {:?} support", self.kind)
+        }
+    }
+}
+
 impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
     type Error = ParseExtentDescriptionError;
 

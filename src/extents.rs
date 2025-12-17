@@ -189,16 +189,6 @@ where
     })
 }
 
-fn filename_from_ed(ed: &ExtentDescription) -> &str {
-    match &ed.kind {
-        ExtentDescriptionInner::Sparse { filename } |
-        ExtentDescriptionInner::Flat { filename, .. } |
-        ExtentDescriptionInner::Vmfs { filename } |
-        ExtentDescriptionInner::VmfsSparse { filename } => filename,
-        _ => todo!("TODO: {:?} support", ed.kind)
-    }
-}
-
 fn read_extents_impl<T: AsRef<Path>>(
     image_path: T,
     descriptor: &str,
@@ -215,7 +205,7 @@ fn read_extents_impl<T: AsRef<Path>>(
     let mut extents = vec![];
 
     for ed in eds {
-        let filename = filename_from_ed(&ed);
+        let filename = ed.filename();
 // FIXME: probably wrong for S3?
         let mut ed_fn = image_path.as_ref().with_file_name(filename);
         if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
