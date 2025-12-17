@@ -12,6 +12,7 @@ mod test_helper;
 mod bytessource;
 mod cache;
 mod cachereadseek;
+mod descriptor;
 mod dummycache;
 mod errors;
 mod extent_description;
