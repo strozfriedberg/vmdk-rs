@@ -485,40 +485,36 @@ fn read_sparse(
     let grain_index = offset / grain_size;
     let grain_data_offset = (offset % grain_size) as usize;
 
-
     let r = (grain_size as usize - grain_data_offset).min(buf.len());
     buf = &mut buf[..r];
 
-    match storage.grain_table.get(&grain_index) {
-        None => {
-            // last vmdk file, zero-fill
-            buf.fill(0);
-        },
-        Some(sector_num) => {
-            if storage.zeroed_grain_table_entry && *sector_num == 1 {
-                // handle zeroed GTE
-                buf.fill(0);
-            }
-            else {
-                let grain_start = *sector_num * SECTOR_SIZE;
+    // NB: we know there is a grain for this index because we
+    // registered it in the span map
+    let sector_num = storage.grain_table.get(&grain_index)
+        .expect("index must exist");
 
-                if storage.has_compressed_grain {
-                    storage.file.seek(SeekFrom::Start(grain_start))?;
+    if storage.zeroed_grain_table_entry && *sector_num == 1 {
+        // handle zeroed GTE
+        buf.fill(0);
+    }
+    else {
+        let grain_start = *sector_num * SECTOR_SIZE;
 
-                    let grain_data = read_and_decompress_grain(
-                        &mut storage.file,
-                        grain_index
-                    )?;
+        if storage.has_compressed_grain {
+            storage.file.seek(SeekFrom::Start(grain_start))?;
 
-                    buf.clone_from_slice(
-                        &grain_data[grain_data_offset..grain_data_offset + r],
-                    );
-                }
-                else {
-                    storage.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
-                    storage.file.read_exact(&mut buf)?;
-                }
-            }
+            let grain_data = read_and_decompress_grain(
+                &mut storage.file,
+                grain_index
+            )?;
+
+            buf.clone_from_slice(
+                &grain_data[grain_data_offset..grain_data_offset + r],
+            );
+        }
+        else {
+            storage.file.seek(SeekFrom::Start(grain_start + grain_data_offset as u64))?;
+            storage.file.read_exact(&mut buf)?;
         }
     }
 
