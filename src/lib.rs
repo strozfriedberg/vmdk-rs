@@ -18,6 +18,7 @@ mod errors;
 mod extent_description;
 mod extents;
 mod filesource;
+mod foyercache;
 mod generated;
 mod header;
 mod placeholdersource;
