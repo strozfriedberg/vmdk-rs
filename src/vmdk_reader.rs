@@ -254,10 +254,8 @@ impl VmdkReader {
             }
 
             // keep going if we are not at the end of the image chain
-            current_url = match parent_url {
-                Some(parent_url) => parent_url,
-                None => break size
-            };
+            let Some(parent_url) = parent_url else { break size; };
+            current_url = parent_url;
         };
 
         // fill missing spans with zeros
