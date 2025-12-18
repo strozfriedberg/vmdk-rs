@@ -254,7 +254,7 @@ impl VmdkReader {
             }
 
             // keep going if we are not at the end of the image chain
-            let Some(parent_url) = parent_url else { break size; };
+            let Some(parent_url) = parent_url else { break 'img_loop size; };
             current_url = parent_url;
         };
 
