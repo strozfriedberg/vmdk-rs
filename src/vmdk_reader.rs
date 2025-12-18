@@ -123,19 +123,6 @@ pub fn source_for_url(
     }
 }
 
-pub fn source_for<P: AsRef<str>>(
-    p: P,
-    runtime: &Runtime
-) -> Result<Box<dyn BytesSource + Send>, OpenError>
-{
-    let p = p.as_ref();
-
-    let url = path_or_url_to_url(p)
-        .ok_or(OpenErrorKind::BadPath(p.into()))?;
-
-    source_for_url(&url, runtime)
-}
-
 fn handle_image(
     current_url: &Url,
     idx: usize,

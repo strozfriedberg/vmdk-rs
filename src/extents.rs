@@ -18,7 +18,7 @@ use crate::{
         extract_extent_descriptions
     },
     header::{VmdkSparseFileHeader, read_header},
-    vmdk_reader::source_for,
+    vmdk_reader::source_for_url,
     storage::{ExtentStorage, FlatStorage, SparseStorage}
 };
 
@@ -209,11 +209,11 @@ pub fn read_extents(
         let ed_url = image_url.join(filename)
             .map_err(|_| OpenErrorKind::BadPath(filename.into()))?;
 
-        let src = source_for(&ed_url, &runtime)
+        let src = source_for_url(&ed_url, &runtime)
             .or_else(|e|
                 // if first filename is wrong and we are bin, try current file
                 if is_bin_and_singular && &ed_url != image_url {
-                    source_for(image_url, &runtime)
+                    source_for_url(image_url, &runtime)
                 }
                 else {
                     Err(e)
