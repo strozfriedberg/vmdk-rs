@@ -28,8 +28,7 @@ futures = "0.3.31"
 #kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
 kaitai = { git = "https://github.com/uckelman-sf/kaitai_struct_rust_runtime.git", branch = "master" }
 regex = "1"
-#rust-s3 = "0.37.0"
-rust-s3 = { git = "https://github.com/uckelman-sf/rust-s3.git", branch = "master" }
+rust-s3 = "0.37.1"
 sha-1 = "^0.10"
 thiserror = "2.0.12"
 tokio = { version = "1.47.1", features = ["fs", "io-util", "rt-multi-thread"] }
