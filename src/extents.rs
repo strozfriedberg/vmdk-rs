@@ -98,8 +98,7 @@ fn read_grain_table(
         let grain_table1_elems = if kind == ExtentKind::Sparse {
             if last_entry_special_size && i == grain_dir_entries.len() - 1 {
                 let rest = size_max % grain_table0_size;
-                (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
-                    as usize
+                rest.div_ceil(size_grain_bytes) as usize
             }
             else {
                 h.num_grain_table_entries as usize
