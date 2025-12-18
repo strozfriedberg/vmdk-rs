@@ -1,5 +1,4 @@
 use kaitai::KError;
-use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
@@ -64,7 +63,7 @@ impl From<KError> for OpenErrorKind {
 #[derive(Debug, thiserror::Error)]
 #[error("{path}: {kind}")]
 pub struct OpenError {
-    pub path: PathBuf,
+    pub path: String,
     #[source]
     pub kind: OpenErrorKind
 }
@@ -124,7 +123,7 @@ impl From<IoError> for OpenError {
 }
 
 impl OpenError {
-    pub fn with_path<T: AsRef<Path>>(self, path: T) -> Self {
+    pub fn with_path<T: AsRef<str>>(self, path: T) -> Self {
         Self {
             path: path.as_ref().into(),
             kind: self.kind

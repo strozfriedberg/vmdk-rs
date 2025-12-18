@@ -78,6 +78,51 @@ fn path_or_url_to_url<P: AsRef<str>>(p: P) -> Option<Url> {
     }
 }
 
+pub fn source_for_url(
+    url: &Url,
+    runtime: &Runtime
+) -> Result<Box<dyn BytesSource + Send>, OpenError>
+{
+    match url.scheme() {
+        "file" => {
+            let p = url.path();
+            let len = std::fs::metadata(p)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(p))?
+                .len();
+
+            Ok(Box::new(FileSource { path: p.into(), len }))
+        },
+        "s3" => {
+            let name = url.host_str()
+                .ok_or(OpenErrorKind::BadPath(url.to_string()))?;
+
+            let bucket = *Bucket::new(
+                name,
+                Region::UsEast1,
+                Credentials::anonymous().unwrap()
+            )
+            .map_err(std::io::Error::other)
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(url.to_string()))?;
+
+            let key = url.path();
+
+            let (h, code) = runtime.block_on(bucket.head_object(key))
+                .map_err(std::io::Error::other)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(url.to_string()))?;
+
+            assert_eq!(code, 200);
+            let len = h.content_length.unwrap().try_into().unwrap();
+            debug!("content-length: {len}");
+
+            Ok(Box::new(S3Source::new(bucket, key.into(), len)))
+        },
+        _ => Err(OpenErrorKind::UnsupportedScheme(url.to_string()).into())
+    }
+}
+
 pub fn source_for<P: AsRef<str>>(
     p: P,
     runtime: &Runtime
@@ -88,57 +133,17 @@ pub fn source_for<P: AsRef<str>>(
     let url = path_or_url_to_url(p)
         .ok_or(OpenErrorKind::BadPath(p.into()))?;
 
-    match url.scheme() {
-        "file" => {
-            let len = std::fs::metadata(p)
-                .map_err(OpenError::from)
-                .map_err(|e| e.with_path(p))?
-                .len();
-
-            Ok(Box::new(FileSource { path: p.into(), len }))
-        },
-        "s3" => {
-            let name = url.host_str()
-                .ok_or(OpenErrorKind::BadPath(p.into()))?;
-
-            let bucket = *Bucket::new(
-                name,
-                Region::UsEast1,
-                Credentials::anonymous().unwrap()
-            )
-            .map_err(std::io::Error::other)
-            .map_err(OpenError::from)
-            .map_err(|e| e.with_path(p))?;
-
-            let key = url.path();
-
-            let (h, code) = runtime.block_on(bucket.head_object(key))
-                .map_err(std::io::Error::other)
-                .map_err(OpenError::from)
-                .map_err(|e| e.with_path(p))?;
-
-            assert_eq!(code, 200);
-            let len = h.content_length.unwrap().try_into().unwrap();
-            debug!("content-length: {len}");
-
-            Ok(Box::new(S3Source::new(bucket, key.into(), len)))
-        },
-        _ => Err(OpenErrorKind::UnsupportedScheme(p.into()).into())
-    }
+    source_for_url(&url, runtime)
 }
 
-fn handle_image<T: AsRef<Path>>(
-    current_fn: T,
+fn handle_image(
+    current_url: &Url,
     idx: usize,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>
-) -> Result<(Vec<Extent>, Option<String>), OpenError>
+) -> Result<(Vec<Extent>, Option<Url>), OpenError>
 {
-    // FIXME
-    let current_fn_str = current_fn.as_ref().to_str()
-        .ok_or_else(|| OpenErrorKind::BadPath("".into()))?;
-
-    let src = source_for(current_fn_str, &runtime)?;
+    let src = source_for_url(current_url, &runtime)?;
     let seg_len = src.end();
 
     cache.lock().unwrap().add_source(idx, src);
@@ -163,7 +168,7 @@ fn handle_image<T: AsRef<Path>>(
     };
 
     let extents = read_extents(
-        &current_fn,
+        current_url,
         &descriptor,
         header,
         cache.clone(),
@@ -171,18 +176,22 @@ fn handle_image<T: AsRef<Path>>(
         idx
     )?;
 
-    let next_fn = extract_parent_fn_hint(&descriptor);
+    let parent_url = extract_parent_fn_hint(&descriptor)
+        .map(|p| current_url.join(&p)
+            .map_err(|_| OpenErrorKind::BadPath(p))
+        )
+        .transpose()?;
 
-    Ok((extents, next_fn))
+    Ok((extents, parent_url))
 }
 
 impl VmdkReader {
-    pub fn open<T: AsRef<Path>>(
+    pub fn open<T: AsRef<str>>(
         image_path: T
     ) -> Result<Self, OpenError>
     {
-        let mut image_size = None;
-        let mut current_fn = PathBuf::from(image_path.as_ref());
+        let mut current_url = path_or_url_to_url(&image_path)
+            .ok_or(OpenErrorKind::BadPath(image_path.as_ref().into()))?;
 
         let runtime = Arc::new(
             tokio::runtime::Runtime::new()
@@ -197,10 +206,11 @@ impl VmdkReader {
         let mut spans: BTreeMap<u64, (u64, usize)> = BTreeMap::new();
         let mut uncovered: BTreeMap<u64, u64> = BTreeMap::new();
         let mut extents = vec![];
+        let mut image_size = None;
 
         let image_size = 'img_loop: loop {
-            let (img_extents, parent_fn) = handle_image(
-                &current_fn,
+            let (img_extents, parent_url) = handle_image(
+                &current_url,
                 idx,
                 cache.clone(),
                 runtime.clone()
@@ -212,12 +222,12 @@ impl VmdkReader {
 
             if image_size.is_none() {
                 image_size = Some(size);
-                let sec_end = size / SECTOR_SIZE + (if size % SECTOR_SIZE > 0 { 1 } else { 0 });
+                let sec_end = size.div_ceil(SECTOR_SIZE);
                 uncovered.insert(0, sec_end);
             }
             else if let Some(s) = image_size && s != size {
                 return Err(OpenError {
-                    path: current_fn,
+                    path: current_url.as_ref().into(),
                     kind: OpenErrorKind::BadParentExtentDescriptorSize(
                         s, size
                     )
@@ -244,10 +254,10 @@ impl VmdkReader {
             }
 
             // keep going if we are not at the end of the image chain
-            match parent_fn {
-                Some(parent_fn) => current_fn.set_file_name(parent_fn),
+            current_url = match parent_url {
+                Some(parent_url) => parent_url,
                 None => break size
-            }
+            };
         };
 
         // fill missing spans with zeros

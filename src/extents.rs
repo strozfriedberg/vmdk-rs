@@ -1,17 +1,16 @@
 use kaitai::ReadSeek;
 use std::{
     collections::HashMap,
-    fs,
     io::{Read, Seek, SeekFrom},
-    path::Path,
     sync::{Arc, Mutex}
 };
 use tokio::runtime::Runtime;
+use url::Url;
 
 use crate::{
     cache::Cache,
     cachereadseek::CacheReadSeek,
-    errors::{DescriptorError, IoError, OpenError},
+    errors::{DescriptorError, IoError, OpenError, OpenErrorKind},
     extent_description::{
         ExtentDescription,
         ExtentDescriptionInner,
@@ -189,14 +188,15 @@ where
     })
 }
 
-fn read_extents_impl<T: AsRef<Path>>(
-    image_path: T,
+pub fn read_extents(
+    image_url: &Url,
     descriptor: &str,
     header: Option<VmdkSparseFileHeader>,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>,
     mut idx: usize
-) -> Result<Vec<Extent>, OpenError> {
+) -> Result<Vec<Extent>, OpenError>
+{
     let eds = extract_extent_descriptions(descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
@@ -206,17 +206,21 @@ fn read_extents_impl<T: AsRef<Path>>(
 
     for ed in eds {
         let filename = ed.filename();
-// FIXME: probably wrong for S3?
-        let mut ed_fn = image_path.as_ref().with_file_name(filename);
-        if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
-            // if first filename is wrong and we are bin, try current file
-            ed_fn = image_path.as_ref().to_path_buf();
-        }
 
-// TODO: extract this from the loop?
-        let filename = ed_fn.to_string_lossy().to_string();
+        let ed_url = image_url.join(filename)
+            .map_err(|_| OpenErrorKind::BadPath(filename.into()))?;
 
-        let src = source_for(&filename, &runtime)?;
+        let src = source_for(&ed_url, &runtime)
+            .or_else(|e|
+                // if first filename is wrong and we are bin, try current file
+                if is_bin_and_singular && &ed_url != image_url {
+                    source_for(image_url, &runtime)
+                }
+                else {
+                    Err(e)
+                }
+            )?;
+
         let seg_len = src.end(); 
 
         cache.lock().unwrap().add_source(idx, src);
@@ -228,14 +232,13 @@ fn read_extents_impl<T: AsRef<Path>>(
             seg_len
         );
 
+        let storage = read_extent(&ed, filename, crs)
+            .map_err(|e| e.with_path(ed_url))?;
+
         extents.push(Extent {
             sectors: ed.sectors,
             start_sector: 0,
-            storage: read_extent(
-                &ed,
-                &filename,
-                crs
-            )?
+            storage
         });
 
         idx += 1;
@@ -246,18 +249,6 @@ fn read_extents_impl<T: AsRef<Path>>(
     }
 
     Ok(extents)
-}
-
-pub fn read_extents<T: AsRef<Path>>(
-    image_path: T,
-    descriptor: &str,
-    header: Option<VmdkSparseFileHeader>,
-    cache: Arc<Mutex<dyn Cache + Send>>,
-    runtime: Arc<Runtime>,
-    idx: usize
-) -> Result<Vec<Extent>, OpenError> {
-    read_extents_impl(&image_path, descriptor, header, cache, runtime, idx)
-        .map_err(|e| e.with_path(&image_path))
 }
 
 #[cfg(test)]
