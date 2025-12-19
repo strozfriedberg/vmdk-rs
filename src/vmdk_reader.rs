@@ -23,6 +23,7 @@ use crate::{
     descriptor::{read_descriptor_file, extract_parent_fn_hint},
     dummycache::DummyCache,
     errors::{InitError, OpenError, OpenErrorKind},
+    foyercache::FoyerCache,
     filesource::FileSource,
     extents::{Extent, read_extents},
     header::{check_signature, read_header},
@@ -189,6 +190,22 @@ impl VmdkReader {
         );
 
         let c = DummyCache::new();
+
+        let cache_chunk_size = 1024 * 1024;
+//        let cache_mem_size = 1024;
+//        let cache_disk_size = 256 * 1024 * 1024;
+        let cache_mem_size = 256;
+        let cache_disk_size = 256;
+        let c = runtime.block_on(
+            FoyerCache::with_default_cache(
+                cache_chunk_size,
+                cache_mem_size,
+                cache_disk_size
+            )
+        )
+        .map_err(InitError::CacheSetupFailed)
+        .map_err(OpenErrorKind::from)?;
+
         let cache = Arc::new(Mutex::new(c));
 
         let mut idx = 0;
