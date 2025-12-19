@@ -104,6 +104,7 @@ fn try_vmware_vmdk_header(
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
 const VMDK_SIGNATURE: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
 
+#[derive(Debug)]
 pub enum FileType {
     Cowd,
     Vmdk
@@ -133,6 +134,9 @@ pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
+    src.seek(SeekFrom::Start(0))
+        .map_err(IoError::from)?;
+
     let ft = check_signature(&mut src)
         .map_err(IoError::from)?;
 

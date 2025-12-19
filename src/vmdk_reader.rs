@@ -125,7 +125,7 @@ pub fn source_for_url(
 
 fn handle_image(
     current_url: &Url,
-    idx: usize,
+    mut idx: usize,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>
 ) -> Result<(Vec<Extent>, Option<Url>), OpenError>
@@ -141,6 +141,8 @@ fn handle_image(
         idx,
         seg_len
     );
+
+    idx += 1;
 
     let ft = check_signature(&mut crs)?;
     crs.seek(SeekFrom::Start(0))?;
@@ -202,6 +204,8 @@ impl VmdkReader {
                 cache.clone(),
                 runtime.clone()
             )?;
+
+            idx += 1;
 
             // size for all images must match
             let size = img_extents.iter()

@@ -115,7 +115,7 @@ fn read_grain_table(
 
         h.src.seek(SeekFrom::Start(*grain_table_offset))?;
 //            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
-        let mut buf = vec![0; grain_table1_elems * 4]; 
+        let mut buf = vec![0; grain_table1_elems * 4];
         h.src.read_exact(&mut buf)?;
 
         let grain_table: Vec<u64> = buf.chunks_exact(4)
@@ -220,7 +220,7 @@ pub fn read_extents(
                 }
             )?;
 
-        let seg_len = src.end(); 
+        let seg_len = src.end();
 
         cache.lock().unwrap().add_source(idx, src);
 
