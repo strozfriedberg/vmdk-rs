@@ -86,12 +86,19 @@ pub fn source_for_url(
 {
     match url.scheme() {
         "file" => {
-            let p = url.path();
+            let p = if cfg!(windows) {
+                // Windows file URLs get a spare / before the drive letter,
+                // which we have to remove when using it as a path.
+                url.path().trim_start_matches('/')
+            }
+            else {
+                url.path()
+            };
+
             let len = std::fs::metadata(p)
                 .map_err(OpenError::from)
                 .map_err(|e| e.with_path(p))?
                 .len();
-
             Ok(Box::new(FileSource { path: p.into(), len }))
         },
         "s3" => {
