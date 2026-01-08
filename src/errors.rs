@@ -3,11 +3,11 @@ use kaitai::KError;
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
     #[error("{0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("{0:?}")]
-    ReadError(KError),
+    Read(KError),
     #[error("Seek to {0} failed: {1:?}")]
-    SeekError(usize, KError)
+    Seek(usize, KError)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -56,7 +56,7 @@ pub enum OpenErrorKind {
 
 impl From<KError> for OpenErrorKind {
     fn from(e: KError) -> Self {
-        Self::IoError(IoError::ReadError(e))
+        Self::IoError(IoError::Read(e))
     }
 }
 
@@ -81,7 +81,7 @@ impl From<KError> for OpenError {
     fn from(e: KError) -> Self {
         Self {
             path: "".into(), // set using with_path()
-            kind: OpenErrorKind::IoError(IoError::ReadError(e))
+            kind: OpenErrorKind::IoError(IoError::Read(e))
         }
     }
 }
@@ -108,7 +108,7 @@ impl From<std::io::Error> for OpenError {
     fn from(e: std::io::Error) -> Self {
         Self {
             path: "".into(), // set using with_path()
-            kind: OpenErrorKind::IoError(IoError::IoError(e))
+            kind: OpenErrorKind::IoError(IoError::Io(e))
         }
     }
 }
