@@ -196,7 +196,7 @@ impl VmdkReader {
                 .map_err(OpenErrorKind::from)?
         );
 
-        let c = DummyCache::new();
+//        let c = DummyCache::new();
 
         let cache_chunk_size = 1024 * 1024;
 //        let cache_mem_size = 1024;
