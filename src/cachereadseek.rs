@@ -20,7 +20,7 @@ impl CacheReadSeek
         cache: Arc<Mutex<dyn Cache + Send>>,
         runtime: Arc<Runtime>,
         idx: usize,
-        len: u64
+        _len: u64
     ) -> Self {
         Self {
             cache,
