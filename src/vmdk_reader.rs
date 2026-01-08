@@ -355,5 +355,4 @@ impl VmdkReader {
 
 #[cfg(test)]
 mod test {
-    use super::*;
 }
