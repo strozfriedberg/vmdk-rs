@@ -73,7 +73,7 @@ fn read_grain_table(
 
     if kind == ExtentKind::Sparse {
         number_of_grain_directory_entries = size_max / grain_table0_size;
-        if size_max % grain_table0_size > 0 {
+        if !size_max.is_multiple_of(grain_table0_size) {
             last_entry_special_size = true;
             number_of_grain_directory_entries += 1;
         }
