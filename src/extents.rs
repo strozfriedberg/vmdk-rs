@@ -64,7 +64,7 @@ impl Extent {
 fn read_grain_table(
     h: &mut VmdkSparseFileHeader,
     kind: ExtentKind
-) -> Result<(HashMap<u64, u64>, u64), IoError> {
+) -> Result<HashMap<u64, u64>, IoError> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
     let size_max = h.size_max * 512;
@@ -133,7 +133,7 @@ fn read_grain_table(
         grain_table_start_index += grain_table.len() as u64;
     }
 
-    Ok((grain_table_all, grain_table_start_index))
+    Ok(grain_table_all)
 }
 
 fn read_extent<T, F>(
@@ -155,7 +155,7 @@ where
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;
 
-            let (grain_table, grain_table_start_index) = read_grain_table(
+            let grain_table = read_grain_table(
                 &mut header,
                 (&ed.kind).into(),
             )?;
