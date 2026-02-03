@@ -5,8 +5,10 @@ use std::{
 };
 
 use crate::errors::{DeserializationError, IoError, OpenErrorKind};
-use crate::generated::vmware_cowd::VmwareCowd;
-use crate::generated::vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods};
+use crate::generated::{
+    vmware_cowd::VmwareCowd,
+    vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods}
+};
 
 #[derive(Debug)]
 pub struct VmdkSparseFileHeader {
