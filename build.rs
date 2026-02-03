@@ -22,7 +22,7 @@ fn remove_inner_attrs(file: &str) {
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
-    let env_var_compiler_name = "KAITAI_STRUCT_COMPILER1";
+    let env_var_compiler_name = "KAITAI_STRUCT_COMPILER";
 
     // if env KAITAI_STRUCT_COMPILER is not defined
     if env::var_os(env_var_compiler_name).is_none() {
