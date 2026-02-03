@@ -187,6 +187,7 @@ impl ExtentDescription {
     pub fn filename(&self) -> &str {
         match &self.kind {
             ExtentDescriptionInner::Sparse { filename } |
+            ExtentDescriptionInner::SeSparse { filename } |
             ExtentDescriptionInner::Flat { filename, .. } |
             ExtentDescriptionInner::Vmfs { filename } |
             ExtentDescriptionInner::VmfsSparse { filename } => filename,
@@ -223,6 +224,14 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                    offset: None | Some(0),
                     ..
                 } => ExtentDescriptionInner::Sparse { filename },
+                ExtentDescriptionLine {
+                    kind: ExtentKind::SeSparse,
+                    filename: Some(filename),
+// TODO: apparently 0 is possible here?
+//                   offset: None,
+                   offset: None | Some(0),
+                    ..
+                } => ExtentDescriptionInner::SeSparse { filename },
                 ExtentDescriptionLine {
                     kind: ExtentKind::Vmfs,
                     filename: Some(filename),
