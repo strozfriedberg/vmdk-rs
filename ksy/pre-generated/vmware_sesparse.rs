@@ -1,10 +1,10 @@
 // This is a generated file! Please edit source .ksy file and use kaitai-struct-compiler to rebuild
 
-#![allow(unused_imports)]
-#![allow(non_snake_case)]
-#![allow(non_camel_case_types)]
-#![allow(irrefutable_let_patterns)]
-#![allow(unused_comparisons)]
+#[allow(unused_imports)]
+#[allow(non_snake_case)]
+#[allow(non_camel_case_types)]
+#[allow(irrefutable_let_patterns)]
+#[allow(unused_comparisons)]
 
 extern crate kaitai;
 use kaitai::*;
