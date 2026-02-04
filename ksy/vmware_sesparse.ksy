@@ -5,7 +5,7 @@ meta:
 doc-ref: https://lists.nongnu.org/archive/html/qemu-block/2019-06/msg00932.html
 seq:
   - id: magic
-    type: u8
+    contents: [0xCA, 0xFE, 0xBA, 0xBE]
   - id: version
     type: u8
   - id: capacity
