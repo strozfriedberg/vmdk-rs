@@ -1,4 +1,3 @@
-use kaitai::ReadSeek;
 use std::{
     collections::HashMap,
     io::{Read, Seek, SeekFrom},
@@ -19,6 +18,7 @@ use crate::{
     },
     header::{VmdkSparseFileHeader, read_header},
     vmdk_reader::source_for_url,
+    readseek::ReadSeek,
     storage::{ExtentStorage, FlatStorage, SparseStorage}
 };
 

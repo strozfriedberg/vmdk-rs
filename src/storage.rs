@@ -1,12 +1,14 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
-use kaitai::ReadSeek;
 use std::{
     collections::HashMap,
     io::{Read, SeekFrom}
 };
 
-use crate::vmdk_reader::ReadError;
+use crate::{
+    readseek::ReadSeek,
+    vmdk_reader::ReadError
+};
 
 const SECTOR_SIZE: u64 = 512;
 

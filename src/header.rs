@@ -1,15 +1,87 @@
-use kaitai::{BytesReader, KError, KStream, KStruct, ReadSeek};
-use std::{
-    io::{Read, Seek, SeekFrom},
-    ops::Deref
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{Read, Seek, SeekFrom};
+
+use crate::{
+    errors::{DeserializationError, IoError, OpenErrorKind},
+    readseek::ReadSeek
 };
 
-use crate::errors::{DeserializationError, IoError, OpenErrorKind};
-use crate::generated::{
-    vmware_cowd::VmwareCowd,
-    vmware_vmdk::{VmwareVmdk, VmwareVmdk_CompressionMethods},
-    vmware_sesparse::VmwareSesparse
-};
+#[derive(Debug)]
+struct Vmdk3Header {
+    version: u32,
+    flags: u32,
+    disk_sectors: u32,
+    granularity: u32,
+    l1dir_offset: u32,
+    l1dir_size: u32,
+    file_sectors: u32,
+    cylinders: u32,
+    heads: u32,
+    sectors_per_track: u32
+}
+
+impl Vmdk3Header {
+    fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
+        Ok(
+            Self {
+                version: r.read_u32::<LittleEndian>()?,
+                flags: r.read_u32::<LittleEndian>()?,
+                disk_sectors: r.read_u32::<LittleEndian>()?,
+                granularity: r.read_u32::<LittleEndian>()?,
+                l1dir_offset: r.read_u32::<LittleEndian>()?,
+                l1dir_size: r.read_u32::<LittleEndian>()?,
+                file_sectors: r.read_u32::<LittleEndian>()?,
+                cylinders: r.read_u32::<LittleEndian>()?,
+                heads: r.read_u32::<LittleEndian>()?,
+                sectors_per_track: r.read_u32::<LittleEndian>()?
+            }
+        )
+    }
+}
+
+#[derive(Debug)]
+struct Vmdk4Header {
+    version: u32,
+    flags: u32,
+    capacity: u64,
+    granularity: u64,
+    desc_offset: u64,
+    desc_size: u64,
+    /* Number of GrainTableEntries per GrainTable */
+    num_gtes_per_gt: u32,
+    rgd_offset: u64,
+    gd_offset: u64,
+    grain_offset: u64,
+    filler: u8,
+    check_bytes: [u8; 4],
+    compress_algorithm: u16
+}
+
+impl Vmdk4Header {
+    fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
+        Ok(
+            Self {
+                version: r.read_u32::<LittleEndian>()?,
+                flags: r.read_u32::<LittleEndian>()?,
+                capacity: r.read_u64::<LittleEndian>()?,
+                granularity: r.read_u64::<LittleEndian>()?,
+                desc_offset: r.read_u64::<LittleEndian>()?,
+                desc_size: r.read_u64::<LittleEndian>()?,
+                num_gtes_per_gt: r.read_u32::<LittleEndian>()?,
+                rgd_offset: r.read_u64::<LittleEndian>()?,
+                gd_offset: r.read_u64::<LittleEndian>()?,
+                grain_offset: r.read_u64::<LittleEndian>()?,
+                filler: r.read_u8()?,
+                check_bytes: {
+                    let mut cb = [0; 4];
+                    r.read_exact(&mut cb)?;
+                    cb
+                },
+                compress_algorithm: r.read_u16::<LittleEndian>()?
+            }
+        )
+    }
+}
 
 #[derive(Debug)]
 pub struct VmdkSparseFileHeader {
@@ -23,85 +95,121 @@ pub struct VmdkSparseFileHeader {
     pub descriptor: String,
 }
 
-impl From<(&VmwareCowd, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
-    fn from((h, src): (&VmwareCowd, Box<dyn ReadSeek>)) -> Self {
-        Self {
-            src,
-            size_max: *h.size_max() as u64,
-            size_grain: *h.size_grain() as u64,
-            grain_dir: *h.grain_dir() as u64,
-            num_grain_table_entries: *h.num_grain_table_entries(),
-            zeroed_grain_table_entry: false,
-            has_compressed_grain: false,
-            descriptor: "".into(),
-        }
+impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+    type Error = std::io::Error;
+
+    fn try_from(
+        (h, mut src): (&Vmdk3Header, Box<dyn ReadSeek>)
+    ) -> Result<Self, Self::Error> {
+        src.rewind()?;
+
+        Ok(
+            Self {
+                src,
+                size_max: h.disk_sectors as u64,
+                size_grain: h.granularity as u64,
+                grain_dir: h.l1dir_offset as u64,
+                num_grain_table_entries: h.l1dir_size,
+                zeroed_grain_table_entry: false,
+                has_compressed_grain: false,
+                descriptor: "".into(),
+            }
+        )
     }
 }
 
-impl TryFrom<(&VmwareVmdk, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
-    type Error = KError;
+impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+    type Error = std::io::Error;
 
     fn try_from(
-        (h, src): (&VmwareVmdk, Box<dyn ReadSeek>)
+        (h, mut src): (&Vmdk4Header, Box<dyn ReadSeek>)
     ) -> Result<Self, Self::Error>
     {
-        let descriptor = String::from_utf8_lossy(
-            h.descriptor()?.deref()
-        ).into();
+        let descriptor = if h.desc_offset > 0 {
+            let mut buf = vec![0; 512 * 20];
 
-        let grain_dir = if *h.flags().use_secondary_grain_dir() {
-            *h.start_secondary_grain()
+// TODO: cleanup
+            src.seek(SeekFrom::Start(h.desc_offset * 512))?;
+            let mut p = 0;
+            let end = loop {
+                let r = src.read(&mut buf[p..])?;
+
+                if r == 0 {
+                    break p;
+                }
+
+                match buf[p..p + r].iter().position(|c| *c == 0x00) {
+                    Some(i) => { break i; },
+                    None => { p += r; }
+                }
+            };
+
+            src.rewind()?;
+            String::from_utf8_lossy(&buf[..end]).into()
         }
         else {
-            *h.start_primary_grain()
-        } as u64;
+            "".into()
+        };
+
+        // check flags to select grain dir
+        let grain_dir = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset };
+
+        let zeroed_grain_table_entry = h.flags & 0x04 != 0;
+        let has_compressed_grain = h.flags & 0x10000 != 0;
 
         Ok(Self {
             src,
-            size_max: *h.size_max() as u64,
-            size_grain: *h.size_grain() as u64,
+            size_max: h.capacity,
+            size_grain: h.granularity,
             grain_dir,
-            num_grain_table_entries: *h.num_grain_table_entries() as u32,
-            zeroed_grain_table_entry: *h.flags().zeroed_grain_table_entry(),
-            has_compressed_grain: *h.flags().has_compressed_grain(),
+            num_grain_table_entries: h.num_gtes_per_gt,
+            zeroed_grain_table_entry,
+            has_compressed_grain,
             descriptor
         })
     }
 }
 
-fn try_vmware_cowd_header(
-    io: BytesReader,
-    src: Box<dyn ReadSeek>
+fn try_cowd_header(
+    mut src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileHeader, DeserializationError>
 {
-    VmwareCowd::read_into::<_, VmwareCowd>(&io, None, None)
-        .map(|h| VmdkSparseFileHeader::from((&*h, src)))
-        .map_err(|e| DeserializationError("VmwareCowd struct", e))
+    let h = Vmdk3Header::from_reader(&mut src)
+        .map_err(|e| DeserializationError("Vmdk3Header struct", e))?;
+
+    Ok(
+        VmdkSparseFileHeader::try_from((&h, src))
+            .map_err(|e| DeserializationError("Vmdk3Header struct", e))?
+    )
 }
 
-fn try_vmware_vmdk_header(
-    io: BytesReader,
-    src: Box<dyn ReadSeek>
+fn try_vmdk_header(
+    mut src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-    let mut h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
-        .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
+    let mut h = Vmdk4Header::from_reader(&mut src)
+        .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
 
-    if *h.start_primary_grain() == -1
-        && *h.compression_method() == VmwareVmdk_CompressionMethods::Deflate
-    {
+    if h.gd_offset == 0xFFFFFFFFFFFFFFFF && h.compress_algorithm == 1 {
         // If the grain directory sector number value is -1
         // (0xffffffffffffffff) (GD_AT_END) in a Stream-Optimized Compressed
         // Sparse Extent there should be a secondary file header stored at
         // offset -1024 relative from the end of the file (stream)
-        io.seek(io.size() - 1024)
-            .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
 
-        h = VmwareVmdk::read_into::<_, VmwareVmdk>(&io, None, None)
-            .map_err(|e| DeserializationError("VmwareVmdk struct", e))?;
+        src.seek(SeekFrom::End(1024))
+            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
+
+        h = Vmdk4Header::from_reader(&mut src)
+            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
     }
 
-    Ok((&*h, src).try_into()?)
+    src.rewind()
+        .map_err(IoError::Io)?;
+
+    Ok(
+        VmdkSparseFileHeader::try_from((&h, src))
+            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?
+    )
 }
 
 const COWD_SIGNATURE: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
@@ -143,17 +251,11 @@ pub fn read_header<T: Read + Seek + Clone + 'static>(
     let ft = check_signature(&mut src)
         .map_err(IoError::from)?;
 
-    src.seek(SeekFrom::Start(0))
-        .map_err(IoError::from)?;
-
-    let rs = Box::new(src.clone()) as Box<dyn ReadSeek>;
-    let io = BytesReader::try_from(rs)?;
-
     let src = Box::new(src) as Box<dyn ReadSeek>;
 
     match ft {
-        Some(FileType::Cowd) => Ok(try_vmware_cowd_header(io, src)?),
-        Some(FileType::Vmdk) => Ok(try_vmware_vmdk_header(io, src)?),
+        Some(FileType::Cowd) => Ok(try_cowd_header(src)?),
+        Some(FileType::Vmdk) => Ok(try_vmdk_header(src)?),
         None => Err(OpenErrorKind::InvalidFileHeader)
     }
 }

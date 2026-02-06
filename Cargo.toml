@@ -27,8 +27,6 @@ foyer = { version = "0.20.0", features = [ "serde" ] }
 foyer-common = "0.20.0"
 flate2 = "1"
 futures = "0.3.31"
-#kaitai = { git = "https://github.com/Agile86/kaitai_rust.git", branch = "rust_basic_support_v2" }
-kaitai = { git = "https://github.com/uckelman-sf/kaitai_struct_rust_runtime.git", branch = "master" }
 regex = "1"
 rust-s3 = "0.37.1"
 sha-1 = "^0.10"

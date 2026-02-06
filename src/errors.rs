@@ -1,13 +1,7 @@
-use kaitai::KError;
-
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
     #[error("{0}")]
-    Io(#[from] std::io::Error),
-    #[error("{0:?}")]
-    Read(KError),
-    #[error("Seek to {0} failed: {1:?}")]
-    Seek(usize, KError)
+    Io(#[from] std::io::Error)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,7 +18,7 @@ pub enum DescriptorError {
 
 #[derive(Debug, thiserror::Error)]
 #[error("Error while deserializing {0} struct: {1:?}")]
-pub struct DeserializationError(pub &'static str, pub KError);
+pub struct DeserializationError(pub &'static str, pub std::io::Error);
 
 #[derive(Debug, thiserror::Error)]
 pub enum InitError {
@@ -54,12 +48,6 @@ pub enum OpenErrorKind {
     UnsupportedScheme(String)
 }
 
-impl From<KError> for OpenErrorKind {
-    fn from(e: KError) -> Self {
-        Self::IoError(IoError::Read(e))
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 #[error("{path}: {kind}")]
 pub struct OpenError {
@@ -73,15 +61,6 @@ impl From<OpenErrorKind> for OpenError {
         Self {
             path: "".into(), // set using with_path()
             kind: e
-        }
-    }
-}
-
-impl From<KError> for OpenError {
-    fn from(e: KError) -> Self {
-        Self {
-            path: "".into(), // set using with_path()
-            kind: OpenErrorKind::IoError(IoError::Read(e))
         }
     }
 }

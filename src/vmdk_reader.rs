@@ -14,8 +14,6 @@ use tokio::runtime::Runtime;
 use tracing::debug;
 use url::Url;
 
-extern crate kaitai;
-
 use crate::{
     bytessource::BytesSource,
     cache::Cache,
