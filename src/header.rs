@@ -2,7 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::{
-    errors::{DeserializationError, IoError, OpenErrorKind},
+    errors::{DeserializationError, OpenErrorKind},
     readseek::ReadSeek
 };
 
@@ -203,8 +203,7 @@ fn try_vmdk_header(
             .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
     }
 
-    src.rewind()
-        .map_err(IoError::Io)?;
+    src.rewind()?;
 
     Ok(
         VmdkSparseFileHeader::try_from((&h, src))
@@ -245,11 +244,9 @@ pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
 ) -> Result<VmdkSparseFileHeader, OpenErrorKind>
 {
-    src.seek(SeekFrom::Start(0))
-        .map_err(IoError::from)?;
+    src.seek(SeekFrom::Start(0))?;
 
-    let ft = check_signature(&mut src)
-        .map_err(IoError::from)?;
+    let ft = check_signature(&mut src)?;
 
     let src = Box::new(src) as Box<dyn ReadSeek>;
 

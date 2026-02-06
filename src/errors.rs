@@ -1,10 +1,4 @@
 #[derive(Debug, thiserror::Error)]
-pub enum IoError {
-    #[error("{0}")]
-    Io(#[from] std::io::Error)
-}
-
-#[derive(Debug, thiserror::Error)]
 pub enum DescriptorError {
     #[error("failed to parse '{0}' as a u64")]
     U64ParseError(String),
@@ -31,7 +25,7 @@ pub enum InitError {
 #[derive(Debug, thiserror::Error)]
 pub enum OpenErrorKind {
     #[error("{0}")]
-    IoError(#[from] IoError),
+    IoError(#[from] std::io::Error),
     #[error("Expected size of parent extent descriptor {0}, actual {1}")]
     BadParentExtentDescriptorSize(u64, u64),
     #[error("Error reading descriptor: {0}")]
@@ -85,15 +79,6 @@ impl From<DeserializationError> for OpenError {
 
 impl From<std::io::Error> for OpenError {
     fn from(e: std::io::Error) -> Self {
-        Self {
-            path: "".into(), // set using with_path()
-            kind: OpenErrorKind::IoError(IoError::Io(e))
-        }
-    }
-}
-
-impl From<IoError> for OpenError {
-    fn from(e: IoError) -> Self {
         Self {
             path: "".into(), // set using with_path()
             kind: OpenErrorKind::IoError(e)

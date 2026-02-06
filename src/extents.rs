@@ -9,7 +9,7 @@ use url::Url;
 use crate::{
     cache::Cache,
     cachereadseek::CacheReadSeek,
-    errors::{DescriptorError, IoError, OpenError, OpenErrorKind},
+    errors::{DescriptorError, OpenError, OpenErrorKind},
     extent_description::{
         ExtentDescription,
         ExtentDescriptionInner,
@@ -64,7 +64,7 @@ impl Extent {
 fn read_grain_table(
     h: &mut VmdkSparseFileHeader,
     kind: ExtentKind
-) -> Result<HashMap<u64, u64>, IoError> {
+) -> Result<HashMap<u64, u64>, std::io::Error> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
     let size_max = h.size_max * 512;
@@ -84,7 +84,6 @@ fn read_grain_table(
 
     // get and read metadata-0
     h.src.seek(SeekFrom::Start(h.grain_dir * 512))?;
-//        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
 
     let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
     h.src.read_exact(&mut buf)?;
@@ -114,7 +113,7 @@ fn read_grain_table(
         }
 
         h.src.seek(SeekFrom::Start(*grain_table_offset))?;
-//            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
+
         let mut buf = vec![0; grain_table1_elems * 4];
         h.src.read_exact(&mut buf)?;
 
