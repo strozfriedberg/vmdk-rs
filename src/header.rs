@@ -84,7 +84,7 @@ impl Vmdk4Header {
 }
 
 #[derive(Debug)]
-pub struct VmdkSparseFileHeader {
+pub struct VmdkSparseFileMeta {
     pub src: Box<dyn ReadSeek>,
     pub size_max: u64,
     pub size_grain: u64,
@@ -95,7 +95,7 @@ pub struct VmdkSparseFileHeader {
     pub descriptor: String,
 }
 
-impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -118,7 +118,7 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
     }
 }
 
-impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
+impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -172,20 +172,20 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileHeader {
 
 fn try_cowd_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileHeader, DeserializationError>
+) -> Result<VmdkSparseFileMeta, DeserializationError>
 {
     let h = Vmdk3Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk3Header struct", e))?;
 
     Ok(
-        VmdkSparseFileHeader::try_from((&h, src))
+        VmdkSparseFileMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("Vmdk3Header struct", e))?
     )
 }
 
 fn try_vmdk_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileHeader, OpenErrorKind>
+) -> Result<VmdkSparseFileMeta, OpenErrorKind>
 {
     let mut h = Vmdk4Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
@@ -206,7 +206,7 @@ fn try_vmdk_header(
     src.rewind()?;
 
     Ok(
-        VmdkSparseFileHeader::try_from((&h, src))
+        VmdkSparseFileMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("Vmdk4Header struct", e))?
     )
 }
@@ -242,7 +242,7 @@ where
 
 pub fn read_header<T: Read + Seek + Clone + 'static>(
     mut src: T,
-) -> Result<VmdkSparseFileHeader, OpenErrorKind>
+) -> Result<VmdkSparseFileMeta, OpenErrorKind>
 {
     src.seek(SeekFrom::Start(0))?;
 

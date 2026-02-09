@@ -16,7 +16,7 @@ use crate::{
         ExtentKind,
         extract_extent_descriptions
     },
-    header::{VmdkSparseFileHeader, read_header},
+    header::{VmdkSparseFileMeta, read_header},
     vmdk_reader::source_for_url,
     readseek::ReadSeek,
     storage::{ExtentStorage, FlatStorage, SparseStorage}
@@ -62,7 +62,7 @@ impl Extent {
 }
 
 fn read_grain_table(
-    h: &mut VmdkSparseFileHeader,
+    h: &mut VmdkSparseFileMeta,
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
     let size_grain_bytes = h.size_grain * 512;
@@ -189,7 +189,7 @@ where
 pub fn read_extents(
     image_url: &Url,
     descriptor: &str,
-    header: Option<VmdkSparseFileHeader>,
+    header: Option<VmdkSparseFileMeta>,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>,
     mut idx: usize
