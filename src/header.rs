@@ -175,11 +175,11 @@ fn try_cowd_header(
 ) -> Result<VmdkSparseFileMeta, DeserializationError>
 {
     let h = Vmdk3Header::from_reader(&mut src)
-        .map_err(|e| DeserializationError("Vmdk3Header struct", e))?;
+        .map_err(|e| DeserializationError("Vmdk3Header", e))?;
 
     Ok(
         VmdkSparseFileMeta::try_from((&h, src))
-            .map_err(|e| DeserializationError("Vmdk3Header struct", e))?
+            .map_err(|e| DeserializationError("Vmdk3Header", e))?
     )
 }
 
@@ -188,7 +188,7 @@ fn try_vmdk_header(
 ) -> Result<VmdkSparseFileMeta, OpenErrorKind>
 {
     let mut h = Vmdk4Header::from_reader(&mut src)
-        .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
+        .map_err(|e| DeserializationError("Vmdk4Header", e))?;
 
     if h.gd_offset == 0xFFFFFFFFFFFFFFFF && h.compress_algorithm == 1 {
         // If the grain directory sector number value is -1
@@ -197,17 +197,17 @@ fn try_vmdk_header(
         // offset -1024 relative from the end of the file (stream)
 
         src.seek(SeekFrom::End(1024))
-            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
+            .map_err(|e| DeserializationError("Vmdk4Header", e))?;
 
         h = Vmdk4Header::from_reader(&mut src)
-            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?;
+            .map_err(|e| DeserializationError("Vmdk4Header", e))?;
     }
 
     src.rewind()?;
 
     Ok(
         VmdkSparseFileMeta::try_from((&h, src))
-            .map_err(|e| DeserializationError("Vmdk4Header struct", e))?
+            .map_err(|e| DeserializationError("Vmdk4Header", e))?
     )
 }
 
