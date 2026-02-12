@@ -153,10 +153,10 @@ pub struct VmdkSparseFileMeta {
     pub src: Box<dyn ReadSeek>,
     pub compressed: bool,
     pub has_zero_grain: bool,
-    pub l1_table_offset: u64,
-    pub cluster_sectors: u64,
     pub sectors: u64,
-    pub num_grain_table_entries: u64,
+    pub l1_table_offset: u64,
+    pub l1_size: u64,
+    pub cluster_sectors: u64,
     pub descriptor: String
 }
 
@@ -173,10 +173,10 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
                 src,
                 compressed: false,
                 has_zero_grain: false,
-                l1_table_offset: h.l1dir_offset as u64,
-                cluster_sectors: h.granularity as u64,
                 sectors: h.disk_sectors as u64,
-                num_grain_table_entries: h.l1dir_size as u64,
+                l1_table_offset: h.l1dir_offset as u64,
+                l1_size: h.l1dir_size as u64,
+                cluster_sectors: h.granularity as u64,
                 descriptor: "".into(),
             }
         )
@@ -226,10 +226,10 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
             src,
             compressed,
             has_zero_grain,
-            l1_table_offset,
-            cluster_sectors: h.granularity,
             sectors: h.capacity,
-            num_grain_table_entries: h.num_gtes_per_gt as u64,
+            l1_table_offset,
+            l1_size: h.num_gtes_per_gt as u64,
+            cluster_sectors: h.granularity,
             descriptor
         })
     }
@@ -248,10 +248,10 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
                 src,
                 compressed: true, // ?
                 has_zero_grain: false, // ?
-                l1_table_offset: h.grain_dir_offset,
-                cluster_sectors: h.grain_size,
                 sectors: h.capacity,
-                num_grain_table_entries: h.grain_table_size / 8,
+                l1_table_offset: h.grain_dir_offset,
+                l1_size: h.grain_table_size / 8,
+                cluster_sectors: h.grain_size,
                 descriptor: "".into(),
             }
         )

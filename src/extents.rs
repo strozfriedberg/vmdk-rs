@@ -66,10 +66,10 @@ fn read_grain_table(
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
     let size_grain_bytes = h.cluster_sectors * 512;
-    let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
+    let grain_table0_size = h.l1_size as u64 * size_grain_bytes;
     let size_max = h.sectors * 512;
     let mut last_entry_special_size = false;
-    let mut number_of_grain_directory_entries = h.num_grain_table_entries as u64;
+    let mut number_of_grain_directory_entries = h.l1_size as u64;
 
     if kind == ExtentKind::Sparse {
         number_of_grain_directory_entries = size_max / grain_table0_size;
@@ -100,7 +100,7 @@ fn read_grain_table(
                 rest.div_ceil(size_grain_bytes) as usize
             }
             else {
-                h.num_grain_table_entries as usize
+                h.l1_size as usize
             }
         }
         else {
