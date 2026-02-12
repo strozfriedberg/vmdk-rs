@@ -65,7 +65,7 @@ fn read_grain_table(
     h: &mut VmdkSparseFileMeta,
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
-    let size_grain_bytes = h.size_grain * 512;
+    let size_grain_bytes = h.cluster_sectors * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
     let size_max = h.sectors * 512;
     let mut last_entry_special_size = false;
@@ -153,7 +153,7 @@ where
             let mut header = read_header(src.clone())?;
             let has_compressed_grain = header.compressed;
             let zeroed_grain_table_entry = header.has_zero_grain;
-            let grain_size = header.size_grain;
+            let grain_size = header.cluster_sectors;
 
             let grain_table = read_grain_table(
                 &mut header,
