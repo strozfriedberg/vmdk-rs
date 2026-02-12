@@ -6,7 +6,7 @@ use crate::{
     readseek::ReadSeek
 };
 
-const SECTOR_SIZE: usize = 512;
+const SECTOR_SIZE: u64 = 512;
 
 #[derive(Debug)]
 struct Vmdk3Header {
@@ -174,7 +174,7 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
                 compressed: false,
                 has_zero_grain: false,
                 sectors: h.disk_sectors as u64,
-                l1_table_offset: h.l1dir_offset as u64,
+                l1_table_offset: h.l1dir_offset as u64 * SECTOR_SIZE,
                 l1_size: h.l1dir_size as u64,
                 cluster_sectors: h.granularity as u64,
                 descriptor: "".into(),
@@ -191,7 +191,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     ) -> Result<Self, Self::Error>
     {
         let descriptor = if h.desc_offset > 0 {
-            let mut buf = vec![0; SECTOR_SIZE * 20];
+            let mut buf = vec![0; SECTOR_SIZE as usize * 20];
 
 // TODO: cleanup
             src.seek(SeekFrom::Start(h.desc_offset * SECTOR_SIZE as u64))?;
@@ -217,7 +217,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         };
 
         // check flags to select grain dir
-        let l1_table_offset = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset };
+        let l1_table_offset = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset } * SECTOR_SIZE;
 
         let has_zero_grain = h.flags & 0x04 != 0;
         let compressed = h.flags & 0x10000 != 0;
@@ -246,10 +246,10 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
         Ok(
             Self {
                 src,
-                compressed: true, // ?
+                compressed: true,
                 has_zero_grain: false, // ?
                 sectors: h.capacity,
-                l1_table_offset: h.grain_dir_offset,
+                l1_table_offset: h.grain_dir_offset * SECTOR_SIZE,
                 l1_size: h.grain_table_size / 8,
                 cluster_sectors: h.grain_size,
                 descriptor: "".into(),

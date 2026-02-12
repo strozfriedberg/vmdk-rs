@@ -83,7 +83,7 @@ fn read_grain_table(
     let mut grain_table_start_index = 0;
 
     // get and read metadata-0
-    h.src.seek(SeekFrom::Start(h.l1_table_offset * 512))?;
+    h.src.seek(SeekFrom::Start(h.l1_table_offset))?;
 
     let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
     h.src.read_exact(&mut buf)?;
