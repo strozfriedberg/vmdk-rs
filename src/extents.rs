@@ -67,7 +67,7 @@ fn read_grain_table(
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
     let size_grain_bytes = h.size_grain * 512;
     let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
-    let size_max = h.size_max * 512;
+    let size_max = h.sectors * 512;
     let mut last_entry_special_size = false;
     let mut number_of_grain_directory_entries = h.num_grain_table_entries as u64;
 
