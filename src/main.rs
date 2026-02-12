@@ -37,7 +37,7 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
         offset += read as u64;
     }
     let result = hasher.finalize();
-    format!("{:X}", result)
+    format!("{:x}", result)
 }
 
 fn main() {
