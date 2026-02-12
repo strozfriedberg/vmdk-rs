@@ -247,7 +247,7 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
             Self {
                 src,
                 compressed: true,
-                has_zero_grain: false, // ?
+                has_zero_grain: false,
                 sectors: h.capacity,
                 l1_table_offset: h.grain_dir_offset * SECTOR_SIZE,
                 l1_size: h.grain_table_size / 8,
