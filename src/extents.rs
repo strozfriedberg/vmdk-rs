@@ -61,13 +61,15 @@ impl Extent {
     }
 }
 
+const SECTOR_SIZE: u64 = 512;
+
 fn read_grain_table(
     h: &mut VmdkSparseFileMeta,
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
-    let size_grain_bytes = h.cluster_sectors * 512;
+    let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
     let grain_table0_size = h.l1_size as u64 * size_grain_bytes;
-    let size_max = h.sectors * 512;
+    let size_max = h.sectors * SECTOR_SIZE;
     let mut last_entry_special_size = false;
     let mut number_of_grain_directory_entries = h.l1_size as u64;
 
@@ -89,7 +91,7 @@ fn read_grain_table(
     h.src.read_exact(&mut buf)?;
 
     let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * SECTOR_SIZE)
         .collect();
 
     // get and read metadata-1
