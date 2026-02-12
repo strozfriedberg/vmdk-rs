@@ -152,11 +152,11 @@ impl VmdkSeSparseConstHeader {
 pub struct VmdkSparseFileMeta {
     pub src: Box<dyn ReadSeek>,
     pub compressed: bool,
+    pub has_zero_grain: bool,
     pub size_max: u64,
     pub size_grain: u64,
     pub grain_dir: u64,
     pub num_grain_table_entries: u64,
-    pub zeroed_grain_table_entry: bool,
     pub descriptor: String,
 }
 
@@ -172,11 +172,11 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
             Self {
                 src,
                 compressed: false,
+                has_zero_grain: false,
                 size_max: h.disk_sectors as u64,
                 size_grain: h.granularity as u64,
                 grain_dir: h.l1dir_offset as u64,
                 num_grain_table_entries: h.l1dir_size as u64,
-                zeroed_grain_table_entry: false,
                 descriptor: "".into(),
             }
         )
@@ -219,17 +219,17 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         // check flags to select grain dir
         let grain_dir = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset };
 
-        let zeroed_grain_table_entry = h.flags & 0x04 != 0;
+        let has_zero_grain = h.flags & 0x04 != 0;
         let compressed = h.flags & 0x10000 != 0;
 
         Ok(Self {
             src,
             compressed,
+            has_zero_grain,
             size_max: h.capacity,
             size_grain: h.granularity,
             grain_dir,
             num_grain_table_entries: h.num_gtes_per_gt as u64,
-            zeroed_grain_table_entry,
             descriptor
         })
     }
@@ -247,11 +247,11 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
             Self {
                 src,
                 compressed: true, // ?
+                has_zero_grain: false, // ?
                 size_max: h.capacity,
                 size_grain: h.grain_size,
                 grain_dir: h.grain_dir_offset,
                 num_grain_table_entries: h.grain_table_size / 8,
-                zeroed_grain_table_entry: false, // ?
                 descriptor: "".into(),
             }
         )
