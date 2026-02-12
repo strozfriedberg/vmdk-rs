@@ -150,7 +150,7 @@ where
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
             let mut header = read_header(src.clone())?;
-            let has_compressed_grain = header.has_compressed_grain;
+            let has_compressed_grain = header.compressed;
             let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
             let grain_size = header.size_grain;
 

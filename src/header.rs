@@ -86,12 +86,12 @@ impl Vmdk4Header {
 #[derive(Debug)]
 pub struct VmdkSparseFileMeta {
     pub src: Box<dyn ReadSeek>,
+    pub compressed: bool,
     pub size_max: u64,
     pub size_grain: u64,
     pub grain_dir: u64,
     pub num_grain_table_entries: u32,
     pub zeroed_grain_table_entry: bool,
-    pub has_compressed_grain: bool,
     pub descriptor: String,
 }
 
@@ -106,12 +106,12 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         Ok(
             Self {
                 src,
+                compressed: false,
                 size_max: h.disk_sectors as u64,
                 size_grain: h.granularity as u64,
                 grain_dir: h.l1dir_offset as u64,
                 num_grain_table_entries: h.l1dir_size,
                 zeroed_grain_table_entry: false,
-                has_compressed_grain: false,
                 descriptor: "".into(),
             }
         )
@@ -155,16 +155,16 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         let grain_dir = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset };
 
         let zeroed_grain_table_entry = h.flags & 0x04 != 0;
-        let has_compressed_grain = h.flags & 0x10000 != 0;
+        let compressed = h.flags & 0x10000 != 0;
 
         Ok(Self {
             src,
+            compressed,
             size_max: h.capacity,
             size_grain: h.granularity,
             grain_dir,
             num_grain_table_entries: h.num_gtes_per_gt,
             zeroed_grain_table_entry,
-            has_compressed_grain,
             descriptor
         })
     }
