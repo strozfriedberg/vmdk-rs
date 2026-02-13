@@ -33,5 +33,5 @@ where
     }
 
     let result = hasher.finalize();
-    format!("{:X}", result)
+    format!("{:x}", result)
 }
