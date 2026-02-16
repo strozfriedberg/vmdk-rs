@@ -4,18 +4,14 @@ use std::{
     sync::{Arc, Mutex}
 };
 use tokio::runtime::Runtime;
+use tracing::info;
 use url::Url;
 
 use crate::{
     cache::Cache,
     cachereadseek::CacheReadSeek,
     errors::{DescriptorError, OpenError, OpenErrorKind},
-    extent_description::{
-        ExtentDescription,
-        ExtentDescriptionInner,
-        ExtentKind,
-        extract_extent_descriptions
-    },
+    extent_description::{ExtentDescription, ExtentDescriptionInner, ExtentKind},
     header::{VmdkSparseFileMeta, read_header},
     vmdk_reader::source_for_url,
     readseek::ReadSeek,
@@ -191,18 +187,13 @@ where
 
 pub fn read_extents(
     image_url: &Url,
-    descriptor: &str,
-    header: Option<VmdkSparseFileMeta>,
+    eds: &[ExtentDescription],
+    is_bin_and_singular: bool,
     cache: Arc<Mutex<dyn Cache + Send>>,
     runtime: Arc<Runtime>,
     mut idx: usize
 ) -> Result<Vec<Extent>, OpenError>
 {
-    let eds = extract_extent_descriptions(descriptor)
-        .or(Err(DescriptorError::ParseExtentDescriptionError))?;
-
-    let is_bin_and_singular = header.is_some() && eds.len() == 1;
-
     let mut extents = vec![];
 
     for ed in eds {

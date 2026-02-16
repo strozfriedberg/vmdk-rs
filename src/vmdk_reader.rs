@@ -20,7 +20,8 @@ use crate::{
     cachereadseek::CacheReadSeek,
     descriptor::{read_descriptor_file, extract_parent_fn_hint},
     dummycache::DummyCache,
-    errors::{InitError, OpenError, OpenErrorKind},
+    errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
+    extent_description::extract_extent_descriptions,
     foyercache::FoyerCache,
     filesource::FileSource,
     extents::{Extent, read_extents},
@@ -162,10 +163,15 @@ fn handle_image(
         (read_descriptor_file(crs)?, None)
     };
 
+    let eds = extract_extent_descriptions(&descriptor)
+        .or(Err(DescriptorError::ParseExtentDescriptionError))?;
+
+    let is_bin_and_singular = header.is_some() && eds.len() == 1;
+
     let extents = read_extents(
         current_url,
-        &descriptor,
-        header,
+        &eds,
+        is_bin_and_singular, 
         cache.clone(),
         runtime.clone(),
         idx
