@@ -167,8 +167,6 @@ fn handle_image(
     let eds = extract_extent_descriptions(&descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
-    crs.seek(SeekFrom::Start(0))?;
-
     let is_bin_and_singular = ft == Some(FileType::Vmdk4) && eds.len() == 1;
 
     let extents = read_extents(
