@@ -21,11 +21,11 @@ use crate::{
     descriptor::{read_descriptor_file, extract_parent_fn_hint},
     dummycache::DummyCache,
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
+    extents::{Extent, read_extents},
     extent_description::extract_extent_descriptions,
     foyercache::FoyerCache,
     filesource::FileSource,
-    extents::{Extent, read_extents},
-    header::{check_signature, read_header},
+    header::{check_signature, FileType, read_header},
     s3source::S3Source,
     spans::{insert_span, remove_span},
     storage::ExtentStorage
@@ -151,27 +151,30 @@ fn handle_image(
 
     idx += 1;
 
+    // determine what we're reading
     let ft = check_signature(&mut crs)?;
     crs.seek(SeekFrom::Start(0))?;
 
-    let (descriptor, header) = if ft.is_some() {
-        let h = read_header(crs)?;
-        let descriptor = h.descriptor.clone();
-        (descriptor, Some(h))
-    }
-    else {
-        (read_descriptor_file(crs)?, None)
+    let descriptor = match ft {
+        // this has an internal descriptor
+        Some(FileType::Vmdk4) => read_header(crs.clone())?.descriptor,
+        // this is a descriptor file
+        None => read_descriptor_file(&mut crs)?,
+        // this is bogus
+        _ => return Err(DescriptorError::ParseExtentDescriptionError.into())
     };
 
     let eds = extract_extent_descriptions(&descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
-    let is_bin_and_singular = header.is_some() && eds.len() == 1;
+    crs.seek(SeekFrom::Start(0))?;
+
+    let is_bin_and_singular = ft == Some(FileType::Vmdk4) && eds.len() == 1;
 
     let extents = read_extents(
         current_url,
         &eds,
-        is_bin_and_singular, 
+        is_bin_and_singular,
         cache.clone(),
         runtime.clone(),
         idx
