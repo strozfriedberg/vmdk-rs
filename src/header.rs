@@ -203,7 +203,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     type Error = std::io::Error;
 
     fn try_from(
-        (h, mut src): (&Vmdk4Header, Box<dyn ReadSeek>)
+        (h, src): (&Vmdk4Header, Box<dyn ReadSeek>)
     ) -> Result<Self, Self::Error>
     {
         // check flags to select grain dir

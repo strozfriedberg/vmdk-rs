@@ -25,7 +25,7 @@ use crate::{
     extent_description::extract_extent_descriptions,
     foyercache::FoyerCache,
     filesource::FileSource,
-    header::{check_signature, FileType, read_header, Vmdk4Header},
+    header::{check_signature, FileType, Vmdk4Header},
     s3source::S3Source,
     spans::{insert_span, remove_span},
     storage::ExtentStorage
