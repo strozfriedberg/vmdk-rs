@@ -68,10 +68,10 @@ where
     R: Read + Seek
 {
     let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
-    let grain_table0_size = h.l1_size as u64 * size_grain_bytes;
+    let grain_table0_size = h.l1_size * size_grain_bytes;
     let size_max = h.sectors * SECTOR_SIZE;
     let mut last_entry_special_size = false;
-    let mut number_of_grain_directory_entries = h.l1_size as u64;
+    let mut number_of_grain_directory_entries = h.l1_size;
 
     if kind == ExtentKind::Sparse {
         number_of_grain_directory_entries = size_max / grain_table0_size;
@@ -213,13 +213,13 @@ fn read_grain_table_sesparse(
     todo!()
 }
 
-fn read_extent<T, F>(
+fn read_extent<R, F>(
     ed: &ExtentDescription,
     filename: F,
-    mut src: T
+    mut src: R
 ) -> Result<ExtentStorage, OpenError>
 where
-    T: Read + Seek + Clone + 'static,
+    R: Read + Seek + Clone + 'static,
     F: Into<String>
 {
     let filename = filename.into();
@@ -227,9 +227,9 @@ where
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let mut header = read_header_sparse(src.clone())?;
+            let header = read_header_sparse(src.clone())?;
             let grain_table = read_grain_table_sparse(
-                &mut header,
+                &header,
                 &mut src,
                 (&ed.kind).into()
             )?;
@@ -312,7 +312,7 @@ pub fn read_extents(
             seg_len
         );
 
-        let storage = read_extent(&ed, filename, crs)
+        let storage = read_extent(ed, filename, crs)
             .map_err(|e| e.with_path(ed_url))?;
 
         extents.push(Extent {

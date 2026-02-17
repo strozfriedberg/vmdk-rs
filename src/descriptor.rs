@@ -19,7 +19,7 @@ where
         let mut buf = vec![0; SECTOR_SIZE as usize * 20];
 
 // TODO: cleanup
-        src.seek(SeekFrom::Start(offset * SECTOR_SIZE as u64))?;
+        src.seek(SeekFrom::Start(offset * SECTOR_SIZE))?;
         let mut p = 0;
         let end = loop {
             let r = src.read(&mut buf[p..])?;

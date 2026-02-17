@@ -85,9 +85,9 @@ impl Vmdk4Header {
     }
 
     pub fn from_reader<R: Read + Seek>(
-        mut r: &mut R
+        r: &mut R
     ) -> std::io::Result<Self> {
-        let h = Self::from_reader_inner(&mut r)?;
+        let h = Self::from_reader_inner(r)?;
 
         if h.gd_offset == 0xFFFFFFFFFFFFFFFF && h.compress_algorithm == 1 {
             // If the grain directory sector number value is -1
@@ -95,7 +95,7 @@ impl Vmdk4Header {
             // Sparse Extent there should be a secondary file header stored at
             // offset -1024 relative from the end of the file (stream)
             r.seek(SeekFrom::End(1024))?;
-            Self::from_reader_inner(&mut r)
+            Self::from_reader_inner(r)
         }
         else {
             Ok(h)
