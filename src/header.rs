@@ -167,7 +167,7 @@ impl VmdkSeSparseConstHeader {
 }
 
 #[derive(Debug)]
-pub struct VmdkSparseFileMeta {
+pub struct VmdkSparseMeta {
     pub src: Box<dyn ReadSeek>,
     pub compressed: bool,
     pub has_zero_grain: bool,
@@ -177,7 +177,7 @@ pub struct VmdkSparseFileMeta {
     pub cluster_sectors: u64
 }
 
-impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
+impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -199,7 +199,7 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     }
 }
 
-impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
+impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -224,7 +224,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
     }
 }
 
-impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
+impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -248,20 +248,20 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
 
 fn try_vmdk3_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileMeta, DeserializationError>
+) -> Result<VmdkSparseMeta, DeserializationError>
 {
     let h = Vmdk3Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk3Header", e))?;
 
     Ok(
-        VmdkSparseFileMeta::try_from((&h, src))
+        VmdkSparseMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("Vmdk3Header", e))?
     )
 }
 
 fn try_vmdk4_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileMeta, OpenErrorKind>
+) -> Result<VmdkSparseMeta, OpenErrorKind>
 {
     let h = Vmdk4Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk4Header", e))?;
@@ -269,14 +269,14 @@ fn try_vmdk4_header(
     src.rewind()?;
 
     Ok(
-        VmdkSparseFileMeta::try_from((&h, src))
+        VmdkSparseMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("Vmdk4Header", e))?
     )
 }
 
 fn try_vmdk_sesparse_const_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseFileMeta, OpenErrorKind>
+) -> Result<VmdkSparseMeta, OpenErrorKind>
 {
     let h = VmdkSeSparseConstHeader::from_reader(&mut src)
         .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?;
@@ -284,7 +284,7 @@ fn try_vmdk_sesparse_const_header(
     src.rewind()?;
 
     Ok(
-        VmdkSparseFileMeta::try_from((&h, src))
+        VmdkSparseMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?
     )
 }
@@ -330,9 +330,9 @@ where
     Ok(signature_to_file_type(&sig))
 }
 
-pub fn read_header<T: Read + Seek + Clone + 'static>(
+pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
     mut src: T,
-) -> Result<VmdkSparseFileMeta, OpenErrorKind>
+) -> Result<VmdkSparseMeta, OpenErrorKind>
 {
     src.seek(SeekFrom::Start(0))?;
 
@@ -348,7 +348,6 @@ pub fn read_header<T: Read + Seek + Clone + 'static>(
     match ft {
         Some(FileType::Vmdk3) => Ok(try_vmdk3_header(src)?),
         Some(FileType::Vmdk4) => Ok(try_vmdk4_header(src)?),
-        Some(FileType::VmdkSeSparse) => Ok(try_vmdk_sesparse_const_header(src)?),
-        None => Err(OpenErrorKind::InvalidFileHeader)
+        _ => Err(OpenErrorKind::InvalidFileHeader)
     }
 }

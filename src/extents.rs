@@ -12,7 +12,7 @@ use crate::{
     cachereadseek::CacheReadSeek,
     errors::{DescriptorError, OpenError, OpenErrorKind},
     extent_description::{ExtentDescription, ExtentDescriptionInner, ExtentKind},
-    header::{VmdkSparseFileMeta, read_header},
+    header::{VmdkSparseMeta, read_header_sparse},
     vmdk_reader::source_for_url,
     readseek::ReadSeek,
     storage::{ExtentStorage, FlatStorage, SparseStorage}
@@ -60,7 +60,7 @@ impl Extent {
 const SECTOR_SIZE: u64 = 512;
 
 fn read_grain_table(
-    h: &mut VmdkSparseFileMeta,
+    h: &mut VmdkSparseMeta,
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
     let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
@@ -146,9 +146,8 @@ where
 
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
-        ExtentDescriptionInner::SeSparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let mut header = read_header(src.clone())?;
+            let mut header = read_header_sparse(src.clone())?;
             let has_compressed_grain = header.compressed;
             let zeroed_grain_table_entry = header.has_zero_grain;
             let grain_size = header.cluster_sectors;
@@ -166,6 +165,9 @@ where
                 has_compressed_grain,
                 zeroed_grain_table_entry
             })
+        },
+        ExtentDescriptionInner::SeSparse { .. } => {
+            todo!()
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
