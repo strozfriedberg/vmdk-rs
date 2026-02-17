@@ -138,7 +138,7 @@ where
 }
 
 fn read_grain_table_sesparse(
-    h: &mut VmdkSeSparseMeta
+    h: &VmdkSeSparseMeta
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
 /*
     let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
@@ -244,12 +244,12 @@ where
             })
         },
         ExtentDescriptionInner::SeSparse { .. } => {
-            let mut header = read_header_sesparse(src.clone())?;
+            let header = read_header_sesparse(src.clone())?;
 
             ExtentStorage::Sparse(SparseStorage {
                 file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
-                grain_table: read_grain_table_sesparse(&mut header)?,
+                grain_table: read_grain_table_sesparse(&header)?,
                 grain_size: header.cluster_sectors,
                 has_compressed_grain: true,
                 zeroed_grain_table_entry: false
