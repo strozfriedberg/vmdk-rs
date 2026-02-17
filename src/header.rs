@@ -2,6 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::{
+    descriptor::read_descriptor_internal,
     errors::{DeserializationError, OpenErrorKind},
     readseek::ReadSeek
 };
@@ -208,31 +209,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         (h, mut src): (&Vmdk4Header, Box<dyn ReadSeek>)
     ) -> Result<Self, Self::Error>
     {
-        let descriptor = if h.desc_offset > 0 {
-            let mut buf = vec![0; SECTOR_SIZE as usize * 20];
-
-// TODO: cleanup
-            src.seek(SeekFrom::Start(h.desc_offset * SECTOR_SIZE as u64))?;
-            let mut p = 0;
-            let end = loop {
-                let r = src.read(&mut buf[p..])?;
-
-                if r == 0 {
-                    break p;
-                }
-
-                match buf[p..p + r].iter().position(|c| *c == 0x00) {
-                    Some(i) => { break i; },
-                    None => { p += r; }
-                }
-            };
-
-            src.rewind()?;
-            String::from_utf8_lossy(&buf[..end]).into()
-        }
-        else {
-            "".into()
-        };
+        let descriptor = read_descriptor_internal(&mut src, h.desc_offset)?;
 
         // check flags to select grain dir
         let l1_table_offset = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset } * SECTOR_SIZE;

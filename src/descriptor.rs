@@ -1,10 +1,46 @@
 use regex::Regex;
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     sync::LazyLock
 };
 
 use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
+
+const SECTOR_SIZE: u64 = 512;
+
+pub fn read_descriptor_internal<R>(
+   src: &mut R,
+   offset: u64
+) -> Result<String, std::io::Error>
+where
+    R: Read + Seek
+{
+    if offset > 0 {
+        let mut buf = vec![0; SECTOR_SIZE as usize * 20];
+
+// TODO: cleanup
+        src.seek(SeekFrom::Start(offset * SECTOR_SIZE as u64))?;
+        let mut p = 0;
+        let end = loop {
+            let r = src.read(&mut buf[p..])?;
+
+            if r == 0 {
+                break p;
+            }
+
+            match buf[p..p + r].iter().position(|c| *c == 0x00) {
+                Some(i) => { break i; },
+                None => { p += r; }
+            }
+        };
+
+        src.rewind()?;
+        Ok(String::from_utf8_lossy(&buf[..end]).into())
+    }
+    else {
+        Ok("".into())
+    }
+}
 
 pub fn read_descriptor_file<R>(
     src: R
