@@ -199,12 +199,9 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
             h.gd_offset
         } * SECTOR_SIZE;
 
-        let has_zero_grain = h.flags & 0x04 != 0;
-        let compressed = h.flags & 0x10000 != 0;
-
         Self {
-            compressed,
-            has_zero_grain,
+            compressed: h.flags & 0x10000 != 0,
+            has_zero_grain: h.flags & 0x04 != 0,
             sectors: h.capacity,
             l1_table_offset,
             l1_size: h.num_gtes_per_gt as u64,
