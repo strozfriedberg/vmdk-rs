@@ -2,7 +2,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::{
-    descriptor::read_descriptor_internal,
     errors::{DeserializationError, OpenErrorKind},
     readseek::ReadSeek
 };
@@ -43,12 +42,12 @@ impl Vmdk3Header {
 }
 
 #[derive(Debug)]
-struct Vmdk4Header {
+pub struct Vmdk4Header {
     version: u32,
     flags: u32,
     capacity: u64,
     granularity: u64,
-    desc_offset: u64,
+    pub desc_offset: u64,
     desc_size: u64,
     /* Number of GrainTableEntries per GrainTable */
     num_gtes_per_gt: u32,
@@ -175,8 +174,7 @@ pub struct VmdkSparseFileMeta {
     pub sectors: u64,
     pub l1_table_offset: u64,
     pub l1_size: u64,
-    pub cluster_sectors: u64,
-    pub descriptor: String
+    pub cluster_sectors: u64
 }
 
 impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
@@ -195,8 +193,7 @@ impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
                 sectors: h.disk_sectors as u64,
                 l1_table_offset: h.l1dir_offset as u64 * SECTOR_SIZE,
                 l1_size: h.l1dir_size as u64,
-                cluster_sectors: h.granularity as u64,
-                descriptor: "".into(),
+                cluster_sectors: h.granularity as u64
             }
         )
     }
@@ -209,8 +206,6 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
         (h, mut src): (&Vmdk4Header, Box<dyn ReadSeek>)
     ) -> Result<Self, Self::Error>
     {
-        let descriptor = read_descriptor_internal(&mut src, h.desc_offset)?;
-
         // check flags to select grain dir
         let l1_table_offset = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset } * SECTOR_SIZE;
 
@@ -224,8 +219,7 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseFileMeta {
             sectors: h.capacity,
             l1_table_offset,
             l1_size: h.num_gtes_per_gt as u64,
-            cluster_sectors: h.granularity,
-            descriptor
+            cluster_sectors: h.granularity
         })
     }
 }
@@ -246,8 +240,7 @@ impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseFileMe
                 sectors: h.capacity,
                 l1_table_offset: h.grain_dir_offset * SECTOR_SIZE,
                 l1_size: h.grain_table_size / 8,
-                cluster_sectors: h.grain_size,
-                descriptor: "".into(),
+                cluster_sectors: h.grain_size
             }
         )
     }
@@ -308,7 +301,7 @@ pub enum FileType {
 }
 
 impl FileType {
-    fn sig_len(&self) -> usize {
+    pub fn sig_len(&self) -> usize {
         match self {
             FileType::Vmdk3 | FileType::Vmdk4 => 4,
             FileType::VmdkSeSparse => 8

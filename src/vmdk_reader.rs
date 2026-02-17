@@ -18,14 +18,14 @@ use crate::{
     bytessource::BytesSource,
     cache::Cache,
     cachereadseek::CacheReadSeek,
-    descriptor::{read_descriptor_file, extract_parent_fn_hint},
+    descriptor::{extract_parent_fn_hint, read_descriptor_file, read_descriptor_internal},
     dummycache::DummyCache,
     errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
     extents::{Extent, read_extents},
     extent_description::extract_extent_descriptions,
     foyercache::FoyerCache,
     filesource::FileSource,
-    header::{check_signature, FileType, read_header},
+    header::{check_signature, FileType, read_header, Vmdk4Header},
     s3source::S3Source,
     spans::{insert_span, remove_span},
     storage::ExtentStorage
@@ -157,7 +157,11 @@ fn handle_image(
     // get the descriptor
     let descriptor = match ft {
         // this has an internal descriptor
-        Some(FileType::Vmdk4) => read_header(crs)?.descriptor,
+        Some(FileType::Vmdk4) => {
+            crs.seek(SeekFrom::Start(FileType::Vmdk4.sig_len() as u64))?;
+            let h = Vmdk4Header::from_reader(&mut crs)?;
+            read_descriptor_internal(&mut crs, h.desc_offset)?
+        },
         // this is a descriptor file
         None => {
             crs.seek(SeekFrom::Start(0))?;
