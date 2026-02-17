@@ -60,7 +60,7 @@ struct Vmdk4Header {
 }
 
 impl Vmdk4Header {
-    fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
+    fn from_reader_inner<R: Read>(r: &mut R) -> std::io::Result<Self> {
         Ok(
             Self {
                 version: r.read_u32::<LittleEndian>()?,
@@ -84,10 +84,10 @@ impl Vmdk4Header {
         )
     }
 
-    fn from_reader_active<R: Read + Seek>(
+    pub fn from_reader<R: Read + Seek>(
         mut r: &mut R
     ) -> std::io::Result<Self> {
-        let mut h = Self::from_reader(&mut r)?;
+        let h = Self::from_reader_inner(&mut r)?;
 
         if h.gd_offset == 0xFFFFFFFFFFFFFFFF && h.compress_algorithm == 1 {
             // If the grain directory sector number value is -1
@@ -95,7 +95,7 @@ impl Vmdk4Header {
             // Sparse Extent there should be a secondary file header stored at
             // offset -1024 relative from the end of the file (stream)
             r.seek(SeekFrom::End(1024))?;
-            Self::from_reader(&mut r)
+            Self::from_reader_inner(&mut r)
         }
         else {
             Ok(h)
@@ -293,7 +293,7 @@ fn try_vmdk4_header(
     mut src: Box<dyn ReadSeek>
 ) -> Result<VmdkSparseFileMeta, OpenErrorKind>
 {
-    let mut h = Vmdk4Header::from_reader_active(&mut src)
+    let h = Vmdk4Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk4Header", e))?;
 
     src.rewind()?;
