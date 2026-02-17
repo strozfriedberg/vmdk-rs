@@ -177,42 +177,34 @@ pub struct VmdkSparseMeta {
     pub cluster_sectors: u64
 }
 
-impl TryFrom<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
-    type Error = std::io::Error;
-
-    fn try_from(
-        (h, mut src): (&Vmdk3Header, Box<dyn ReadSeek>)
-    ) -> Result<Self, Self::Error> {
-        src.rewind()?;
-
-        Ok(
-            Self {
-                src,
-                compressed: false,
-                has_zero_grain: false,
-                sectors: h.disk_sectors as u64,
-                l1_table_offset: h.l1dir_offset as u64 * SECTOR_SIZE,
-                l1_size: h.l1dir_size as u64,
-                cluster_sectors: h.granularity as u64
-            }
-        )
+impl From<(&Vmdk3Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
+    fn from((h, mut src): (&Vmdk3Header, Box<dyn ReadSeek>)) -> Self {
+        Self {
+            src,
+            compressed: false,
+            has_zero_grain: false,
+            sectors: h.disk_sectors as u64,
+            l1_table_offset: h.l1dir_offset as u64 * SECTOR_SIZE,
+            l1_size: h.l1dir_size as u64,
+            cluster_sectors: h.granularity as u64
+        }
     }
 }
 
-impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
-    type Error = std::io::Error;
-
-    fn try_from(
-        (h, src): (&Vmdk4Header, Box<dyn ReadSeek>)
-    ) -> Result<Self, Self::Error>
-    {
+impl From<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
+    fn from((h, src): (&Vmdk4Header, Box<dyn ReadSeek>)) -> Self {
         // check flags to select grain dir
-        let l1_table_offset = if h.flags & 0x02 != 0 { h.rgd_offset } else { h.gd_offset } * SECTOR_SIZE;
+        let l1_table_offset = if h.flags & 0x02 != 0 {
+            h.rgd_offset
+        }
+        else {
+            h.gd_offset
+        } * SECTOR_SIZE;
 
         let has_zero_grain = h.flags & 0x04 != 0;
         let compressed = h.flags & 0x10000 != 0;
 
-        Ok(Self {
+        Self {
             src,
             compressed,
             has_zero_grain,
@@ -220,40 +212,31 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
             l1_table_offset,
             l1_size: h.num_gtes_per_gt as u64,
             cluster_sectors: h.granularity
-        })
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct VmdkSeSparseMeta {
     pub src: Box<dyn ReadSeek>,
-    pub compressed: bool,
-    pub has_zero_grain: bool,
     pub sectors: u64,
     pub l1_table_offset: u64,
     pub l1_size: u64,
     pub cluster_sectors: u64
 }
 
-impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSeSparseMeta {
-    type Error = std::io::Error;
-
-    fn try_from(
+impl From<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSeSparseMeta {
+    fn from(
         (h, mut src): (&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)
-    ) -> Result<Self, Self::Error> {
-        src.rewind()?;
-
-        Ok(
-            Self {
-                src,
-                compressed: true,
-                has_zero_grain: false,
-                sectors: h.capacity,
-                l1_table_offset: h.grain_dir_offset * SECTOR_SIZE,
-                l1_size: h.grain_table_size / 8,
-                cluster_sectors: h.grain_size
-            }
-        )
+    ) -> Self
+    {
+        Self {
+            src,
+            sectors: h.capacity,
+            l1_table_offset: h.grain_dir_offset * SECTOR_SIZE,
+            l1_size: h.grain_table_size / 8,
+            cluster_sectors: h.grain_size
+        }
     }
 }
 
@@ -264,10 +247,7 @@ fn try_vmdk3_header(
     let h = Vmdk3Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk3Header", e))?;
 
-    Ok(
-        VmdkSparseMeta::try_from((&h, src))
-            .map_err(|e| DeserializationError("Vmdk3Header", e))?
-    )
+    Ok(VmdkSparseMeta::from((&h, src)))
 }
 
 fn try_vmdk4_header(
@@ -277,12 +257,7 @@ fn try_vmdk4_header(
     let h = Vmdk4Header::from_reader(&mut src)
         .map_err(|e| DeserializationError("Vmdk4Header", e))?;
 
-    src.rewind()?;
-
-    Ok(
-        VmdkSparseMeta::try_from((&h, src))
-            .map_err(|e| DeserializationError("Vmdk4Header", e))?
-    )
+    Ok(VmdkSparseMeta::from((&h, src)))
 }
 
 fn try_vmdk_sesparse_const_header(
@@ -292,12 +267,7 @@ fn try_vmdk_sesparse_const_header(
     let h = VmdkSeSparseConstHeader::from_reader(&mut src)
         .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?;
 
-    src.rewind()?;
-
-    Ok(
-        VmdkSeSparseMeta::try_from((&h, src))
-            .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?
-    )
+    Ok(VmdkSeSparseMeta::from((&h, src)))
 }
 
 const VMDK3_MAGIC: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];

@@ -59,7 +59,7 @@ impl Extent {
 
 const SECTOR_SIZE: u64 = 512;
 
-fn read_grain_table(
+fn read_grain_table_sparse(
     h: &mut VmdkSparseMeta,
     kind: ExtentKind
 ) -> Result<HashMap<u64, u64>, std::io::Error> {
@@ -133,6 +133,82 @@ fn read_grain_table(
     Ok(grain_table_all)
 }
 
+fn read_grain_table_sesparse(
+    h: &mut VmdkSeSparseMeta
+) -> Result<HashMap<u64, u64>, std::io::Error> {
+/*
+    let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
+    let grain_table0_size = h.l1_size as u64 * size_grain_bytes;
+    let size_max = h.sectors * SECTOR_SIZE;
+    let mut last_entry_special_size = false;
+    let mut number_of_grain_directory_entries = h.l1_size as u64;
+
+    if kind == ExtentKind::Sparse {
+        number_of_grain_directory_entries = size_max / grain_table0_size;
+        if !size_max.is_multiple_of(grain_table0_size) {
+            last_entry_special_size = true;
+            number_of_grain_directory_entries += 1;
+        }
+    }
+
+    let mut grain_table_all = HashMap::new();
+    let mut grain_table_start_index = 0;
+
+    // get and read metadata-0
+    h.src.seek(SeekFrom::Start(h.l1_table_offset))?;
+
+    let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
+    h.src.read_exact(&mut buf)?;
+
+    let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * SECTOR_SIZE)
+        .collect();
+
+    // get and read metadata-1
+    for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
+        let grain_table1_elems = if kind == ExtentKind::Sparse {
+            if last_entry_special_size && i == grain_dir_entries.len() - 1 {
+                let rest = size_max % grain_table0_size;
+                rest.div_ceil(size_grain_bytes) as usize
+            }
+            else {
+                h.l1_size as usize
+            }
+        }
+        else {
+            4096
+        };
+
+        if *grain_table_offset == 0 {
+            grain_table_start_index += grain_table1_elems as u64;
+            continue;
+        }
+
+        h.src.seek(SeekFrom::Start(*grain_table_offset))?;
+
+        let mut buf = vec![0; grain_table1_elems * 4];
+        h.src.read_exact(&mut buf)?;
+
+        let grain_table: Vec<u64> = buf.chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
+            .collect();
+
+        for (i, grain) in grain_table.iter().enumerate() {
+            if *grain == 0 {
+                continue;
+            }
+            let old = grain_table_all.insert(grain_table_start_index + i as u64, *grain);
+            debug_assert!(old.is_none());
+        }
+
+        grain_table_start_index += grain_table.len() as u64;
+    }
+
+    Ok(grain_table_all)
+*/
+    todo!()
+}
+
 fn read_extent<T, F>(
     ed: &ExtentDescription,
     filename: F,
@@ -148,27 +224,30 @@ where
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
             let mut header = read_header_sparse(src.clone())?;
-            let has_compressed_grain = header.compressed;
-            let zeroed_grain_table_entry = header.has_zero_grain;
-            let grain_size = header.cluster_sectors;
-
-            let grain_table = read_grain_table(
-                &mut header,
-                (&ed.kind).into(),
-            )?;
 
             ExtentStorage::Sparse(SparseStorage {
                 file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
-                grain_table,
-                grain_size,
-                has_compressed_grain,
-                zeroed_grain_table_entry
+                grain_table: read_grain_table_sparse(
+                    &mut header,
+                    (&ed.kind).into(),
+                )?,
+                grain_size: header.cluster_sectors,
+                has_compressed_grain: header.compressed,
+                zeroed_grain_table_entry: header.has_zero_grain
             })
         },
         ExtentDescriptionInner::SeSparse { .. } => {
             let mut header = read_header_sesparse(src.clone())?;
-            todo!()
+
+            ExtentStorage::Sparse(SparseStorage {
+                file: Box::new(src) as Box<dyn ReadSeek>,
+                filename,
+                grain_table: read_grain_table_sesparse(&mut header)?,
+                grain_size: header.cluster_sectors,
+                has_compressed_grain: true,
+                zeroed_grain_table_entry: false
+            })
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
