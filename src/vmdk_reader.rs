@@ -157,7 +157,7 @@ fn handle_image(
     // get the descriptor
     let descriptor = match ft {
         // this has an internal descriptor
-        Some(FileType::Vmdk4) => read_header(crs.clone())?.descriptor,
+        Some(FileType::Vmdk4) => read_header(crs)?.descriptor,
         // this is a descriptor file
         None => {
             crs.seek(SeekFrom::Start(0))?;
