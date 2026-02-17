@@ -153,14 +153,16 @@ fn handle_image(
 
     // determine what we're reading
     let ft = check_signature(&mut crs)?;
-    crs.seek(SeekFrom::Start(0))?;
 
     // get the descriptor
     let descriptor = match ft {
         // this has an internal descriptor
         Some(FileType::Vmdk4) => read_header(crs.clone())?.descriptor,
         // this is a descriptor file
-        None => read_descriptor_file(&mut crs)?,
+        None => {
+            crs.seek(SeekFrom::Start(0))?;
+            read_descriptor_file(&mut crs)?
+        },
         // this is bogus
         _ => return Err(DescriptorError::ParseExtentDescriptionError.into())
     };
