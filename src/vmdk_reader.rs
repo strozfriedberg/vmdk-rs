@@ -155,6 +155,7 @@ fn handle_image(
     let ft = check_signature(&mut crs)?;
     crs.seek(SeekFrom::Start(0))?;
 
+    // get the descriptor
     let descriptor = match ft {
         // this has an internal descriptor
         Some(FileType::Vmdk4) => read_header(crs.clone())?.descriptor,
@@ -164,11 +165,13 @@ fn handle_image(
         _ => return Err(DescriptorError::ParseExtentDescriptionError.into())
     };
 
+    // get the extent descriptions
     let eds = extract_extent_descriptions(&descriptor)
         .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
     let is_bin_and_singular = ft == Some(FileType::Vmdk4) && eds.len() == 1;
 
+    // read each extent
     let extents = read_extents(
         current_url,
         &eds,
@@ -178,6 +181,7 @@ fn handle_image(
         idx
     )?;
 
+    // find the parent image, if any
     let parent_url = extract_parent_fn_hint(&descriptor)
         .map(|p| current_url.join(&p)
             .map_err(|_| OpenErrorKind::BadPath(p))
