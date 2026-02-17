@@ -12,7 +12,7 @@ use crate::{
     cachereadseek::CacheReadSeek,
     errors::{DescriptorError, OpenError, OpenErrorKind},
     extent_description::{ExtentDescription, ExtentDescriptionInner, ExtentKind},
-    header::{VmdkSparseMeta, read_header_sparse},
+    header::{VmdkSparseMeta, VmdkSeSparseMeta, read_header_sparse, read_header_sesparse},
     vmdk_reader::source_for_url,
     readseek::ReadSeek,
     storage::{ExtentStorage, FlatStorage, SparseStorage}
@@ -167,6 +167,7 @@ where
             })
         },
         ExtentDescriptionInner::SeSparse { .. } => {
+            let mut header = read_header_sesparse(src.clone())?;
             todo!()
         },
         ExtentDescriptionInner::Vmfs { .. } => {

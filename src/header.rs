@@ -224,7 +224,18 @@ impl TryFrom<(&Vmdk4Header, Box<dyn ReadSeek>)> for VmdkSparseMeta {
     }
 }
 
-impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSparseMeta {
+#[derive(Debug)]
+pub struct VmdkSeSparseMeta {
+    pub src: Box<dyn ReadSeek>,
+    pub compressed: bool,
+    pub has_zero_grain: bool,
+    pub sectors: u64,
+    pub l1_table_offset: u64,
+    pub l1_size: u64,
+    pub cluster_sectors: u64
+}
+
+impl TryFrom<(&VmdkSeSparseConstHeader, Box<dyn ReadSeek>)> for VmdkSeSparseMeta {
     type Error = std::io::Error;
 
     fn try_from(
@@ -276,7 +287,7 @@ fn try_vmdk4_header(
 
 fn try_vmdk_sesparse_const_header(
     mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseMeta, OpenErrorKind>
+) -> Result<VmdkSeSparseMeta, OpenErrorKind>
 {
     let h = VmdkSeSparseConstHeader::from_reader(&mut src)
         .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?;
@@ -284,7 +295,7 @@ fn try_vmdk_sesparse_const_header(
     src.rewind()?;
 
     Ok(
-        VmdkSparseMeta::try_from((&h, src))
+        VmdkSeSparseMeta::try_from((&h, src))
             .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?
     )
 }
@@ -331,7 +342,7 @@ where
 }
 
 pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
-    mut src: T,
+    mut src: T
 ) -> Result<VmdkSparseMeta, OpenErrorKind>
 {
     src.seek(SeekFrom::Start(0))?;
@@ -340,7 +351,7 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
 
     if let Some(ft) = &ft {
         // return to end of signature
-        src.seek(SeekFrom::Current(ft.sig_len() as i64 - 8))?;
+        src.seek(SeekFrom::Start(ft.sig_len() as u64))?;
     }
 
     let src = Box::new(src) as Box<dyn ReadSeek>;
@@ -349,5 +360,27 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
         Some(FileType::Vmdk3) => Ok(try_vmdk3_header(src)?),
         Some(FileType::Vmdk4) => Ok(try_vmdk4_header(src)?),
         _ => Err(OpenErrorKind::InvalidFileHeader)
+    }
+}
+
+pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
+    mut src: T
+) -> Result<VmdkSeSparseMeta, OpenErrorKind>
+{
+    src.seek(SeekFrom::Start(0))?;
+
+    let ft = check_signature(&mut src)?;
+
+    if let Some(ft) = &ft {
+        // return to end of signature
+        src.seek(SeekFrom::Start(ft.sig_len() as u64))?;
+    }
+
+    if let Some(FileType::VmdkSeSparse) = ft {
+        let src = Box::new(src) as Box<dyn ReadSeek>;
+        Ok(try_vmdk_sesparse_const_header(src)?)
+    }
+    else {
+        Err(OpenErrorKind::InvalidFileHeader)
     }
 }
