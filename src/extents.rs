@@ -84,7 +84,7 @@ where
     // read level 2
     let mut grain_table = HashMap::new();
     let mut start_cluster = 0;
-    let mut total_clusters = h.sectors / h.cluster_sectors;
+    let total_clusters = h.sectors / h.cluster_sectors;
 
     for l2_offset in l1_entries {
         if start_cluster == total_clusters {
