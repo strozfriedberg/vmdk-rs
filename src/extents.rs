@@ -83,7 +83,7 @@ where
 
     // read level 2
     let mut grain_table = HashMap::new();
-    let mut start_index = 0;
+    let mut start_cluster = 0;
     let mut clusters_remaining = h.sectors / h.cluster_sectors;
 
     for l2_offset in l1_entries {
@@ -97,7 +97,7 @@ where
 
         if l2_offset == 0 {
             // the data for this entry is in the parent
-            start_index += l2_len;
+            start_cluster += l2_len;
             continue;
         }
 
@@ -111,10 +111,10 @@ where
             l2_entries.iter()
                 .enumerate()
                 .filter(|(_, grain)| **grain != 0)
-                .map(|(i, grain)| (start_index + i as u64 , *grain))
+                .map(|(i, grain)| (start_cluster + i as u64 , *grain))
         );
 
-        start_index += l2_len;
+        start_cluster += l2_len;
     }
 
     Ok(grain_table)
