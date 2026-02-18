@@ -172,7 +172,8 @@ pub struct VmdkSparseMeta {
     pub has_zero_grain: bool,
     pub sectors: u64,
     pub l1_offset: u64,
-    pub l1_size: u64,
+    pub l1_len: u64,
+    pub l2_len: u64,
     pub cluster_sectors: u64
 }
 
@@ -183,7 +184,8 @@ impl From<Vmdk3Header> for VmdkSparseMeta {
             has_zero_grain: false,
             sectors: h.disk_sectors as u64,
             l1_offset: h.l1dir_offset as u64 * SECTOR_SIZE,
-            l1_size: h.l1dir_size as u64,
+            l1_len: h.l1dir_size as u64,
+            l2_len: 4096,
             cluster_sectors: h.granularity as u64
         }
     }
@@ -191,7 +193,7 @@ impl From<Vmdk3Header> for VmdkSparseMeta {
 
 impl From<Vmdk4Header> for VmdkSparseMeta {
     fn from(h: Vmdk4Header) -> Self {
-        // check flags to select grain dir
+        // check flags to select primary or secondary grain dir
         let l1_offset = if h.flags & 0x02 != 0 {
             h.rgd_offset
         }
@@ -199,12 +201,16 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
             h.gd_offset
         } * SECTOR_SIZE;
 
+        let l1_sectors_per_entry = (h.num_gtes_per_gt as u64) * h.granularity;
+        let l1_len = h.capacity.div_ceil(l1_sectors_per_entry);
+
         Self {
             compressed: h.flags & 0x10000 != 0,
             has_zero_grain: h.flags & 0x04 != 0,
             sectors: h.capacity,
             l1_offset,
-            l1_size: h.num_gtes_per_gt as u64,
+            l1_len,
+            l2_len: h.num_gtes_per_gt as u64,
             cluster_sectors: h.granularity
         }
     }
@@ -214,7 +220,7 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
 pub struct VmdkSeSparseMeta {
     pub sectors: u64,
     pub l1_offset: u64,
-    pub l1_size: u64,
+    pub l1_len: u64,
     pub cluster_sectors: u64
 }
 
@@ -223,7 +229,7 @@ impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
         Self {
             sectors: h.capacity,
             l1_offset: h.grain_dir_offset * SECTOR_SIZE,
-            l1_size: h.grain_table_size / 8,
+            l1_len: h.grain_table_size / 8,
             cluster_sectors: h.grain_size
         }
     }
