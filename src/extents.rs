@@ -102,7 +102,7 @@ where
             }
         }
         else {
-            4096
+            h.l2_len as usize
         };
 
         if *grain_table_offset == 0 {
