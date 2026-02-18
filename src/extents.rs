@@ -75,14 +75,14 @@ where
     // h.l2_len: number of l2 grain table entries
     //      (NB: last l2 group may be smaller for ExtentKind::Sparse)
 
-    // get and read metadata-0
+    // read level 1
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
     let l1_entries = (0..h.l1_len)
         .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-    // get and read metadata-1
+    // read level 2
     let mut grain_table_all = HashMap::new();
     let mut grain_table_start_index = 0;
     let mut clusters_remaining = h.sectors / h.cluster_sectors;
