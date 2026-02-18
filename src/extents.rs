@@ -83,8 +83,8 @@ where
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
     // read level 2
-    let mut grain_table_all = HashMap::new();
-    let mut grain_table_start_index = 0;
+    let mut grain_table = HashMap::new();
+    let mut start_index = 0;
     let mut clusters_remaining = h.sectors / h.cluster_sectors;
 
     for (i, l2_offset) in l1_entries.iter().enumerate() {
@@ -96,7 +96,7 @@ where
         clusters_remaining -= l2_len;
 
         if *l2_offset == 0 {
-            grain_table_start_index += l2_len as u64;
+            start_index += l2_len as u64;
             continue;
         }
 
@@ -106,17 +106,17 @@ where
             .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
             .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        grain_table_all.extend(
+        grain_table.extend(
             l2_entries.iter()
                 .enumerate()
                 .filter(|(_, grain)| **grain != 0)
-                .map(|(i, grain)| (grain_table_start_index + i as u64 , *grain))
+                .map(|(i, grain)| (start_index + i as u64 , *grain))
         );
 
-        grain_table_start_index += l2_len as u64;
+        start_index += l2_len as u64;
     }
 
-    Ok(grain_table_all)
+    Ok(grain_table)
 }
 
 fn read_grain_table_sesparse<R>(
