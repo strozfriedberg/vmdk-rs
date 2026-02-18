@@ -71,6 +71,7 @@ where
     let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
     let grain_table0_size = h.l1_len * size_grain_bytes;
     let size_max = h.sectors * SECTOR_SIZE;
+
     let mut last_entry_special_size = false;
 
     if kind == ExtentKind::Sparse {
@@ -85,7 +86,7 @@ where
     // get and read metadata-0
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
-    let l1_entries = (0..number_of_grain_directory_entries)
+    let l1_entries = (0..h.l1_len)
         .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
