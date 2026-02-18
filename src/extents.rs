@@ -106,13 +106,12 @@ where
             .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
             .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        for (i, grain) in l2_entries.iter().enumerate() {
-            if *grain == 0 {
-                continue;
-            }
-            let old = grain_table_all.insert(grain_table_start_index + i as u64, *grain);
-            debug_assert!(old.is_none());
-        }
+        grain_table_all.extend(
+            l2_entries.iter()
+                .enumerate()
+                .filter(|(_, grain)| **grain != 0)
+                .map(|(i, grain)| (grain_table_start_index + i as u64 , *grain))
+        );
 
         grain_table_start_index += l2_len as u64;
     }
