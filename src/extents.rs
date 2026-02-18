@@ -72,7 +72,7 @@ where
     // h.l1_offset: offset of l1 grain directory
     // h.l1_len: number of l1 grain directory entries
     // h.l2_len: number of l2 grain table entries
-    //      (NB: last l2 group may be smaller for ExtentKind::Sparse)
+    //      (NB: last l2 group may be smaller)
 
     // read level 1
     src.seek(SeekFrom::Start(h.l1_offset))?;
@@ -84,16 +84,15 @@ where
     // read level 2
     let mut grain_table = HashMap::new();
     let mut start_cluster = 0;
-    let mut clusters_remaining = h.sectors / h.cluster_sectors;
+    let mut total_clusters = h.sectors / h.cluster_sectors;
 
     for l2_offset in l1_entries {
-        if clusters_remaining == 0 {
+        if start_cluster == total_clusters {
             // we've exhausted all the clusters; stop
             break;
         }
 
-        let l2_len = h.l2_len.min(clusters_remaining);
-        clusters_remaining -= l2_len;
+        let l2_len = h.l2_len.min(total_clusters - start_cluster);
 
         if l2_offset == 0 {
             // the data for this entry is in the parent
