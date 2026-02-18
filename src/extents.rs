@@ -92,14 +92,12 @@ where
     let mut grain_table_start_index = 0;
 
     for (i, grain_table_offset) in l1_entries.iter().enumerate() {
-        let grain_table1_elems = if kind == ExtentKind::Sparse {
-            if last_entry_special_size && i == l1_entries.len() - 1 {
-                let rest = size_max % grain_table0_size;
-                rest.div_ceil(size_grain_bytes) as usize
-            }
-            else {
-                h.l2_len as usize
-            }
+
+        let grain_table1_elems = if kind == ExtentKind::Sparse &&
+            last_entry_special_size && i == l1_entries.len() - 1
+        {
+            let rest = size_max % grain_table0_size;
+            rest.div_ceil(size_grain_bytes) as usize
         }
         else {
             h.l2_len as usize
