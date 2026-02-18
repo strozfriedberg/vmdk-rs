@@ -80,9 +80,6 @@ where
         }
     }
 
-    let mut grain_table_all = HashMap::new();
-    let mut grain_table_start_index = 0;
-
     // get and read metadata-0
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
@@ -91,6 +88,9 @@ where
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
     // get and read metadata-1
+    let mut grain_table_all = HashMap::new();
+    let mut grain_table_start_index = 0;
+
     for (i, grain_table_offset) in l1_entries.iter().enumerate() {
         let grain_table1_elems = if kind == ExtentKind::Sparse {
             if last_entry_special_size && i == l1_entries.len() - 1 {
