@@ -72,6 +72,8 @@ where
     let grain_table0_size = h.l1_len * size_grain_bytes;
     let size_max = h.sectors * SECTOR_SIZE;
 
+    let rest = size_max % grain_table0_size;
+
     let last_entry_special_size = kind == ExtentKind::Sparse &&
         !size_max.is_multiple_of(grain_table0_size);
 
@@ -87,10 +89,20 @@ where
     let mut grain_table_start_index = 0;
 
     for (i, grain_table_offset) in l1_entries.iter().enumerate() {
+/*
+        let grain_table1_elems = if kind == ExtentKind::Sparse {
+            h.l2_len.min(h.l1_len * h.cluster_sectors - grain_table_start_index) as usize
+        }
+        else {
+            h.l2_len as usize
+        };
+
+        eprintln!("{grain_table1_elems}");
+*/
+
         let grain_table1_elems = if last_entry_special_size &&
             i == l1_entries.len() - 1
         {
-            let rest = size_max % grain_table0_size;
             rest.div_ceil(size_grain_bytes) as usize
         }
         else {
