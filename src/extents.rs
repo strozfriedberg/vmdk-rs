@@ -86,16 +86,16 @@ where
     let mut grain_table_start_index = 0;
 
     // get and read metadata-0
-    src.seek(SeekFrom::Start(h.l1_table_offset))?;
+    src.seek(SeekFrom::Start(h.l1_offset))?;
 
-    let grain_dir_entries = (0..number_of_grain_directory_entries)
+    let l1_entries = (0..number_of_grain_directory_entries)
         .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
     // get and read metadata-1
-    for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
+    for (i, grain_table_offset) in l1_entries.iter().enumerate() {
         let grain_table1_elems = if kind == ExtentKind::Sparse {
-            if last_entry_special_size && i == grain_dir_entries.len() - 1 {
+            if last_entry_special_size && i == l1_entries.len() - 1 {
                 let rest = size_max % grain_table0_size;
                 rest.div_ceil(size_grain_bytes) as usize
             }
