@@ -72,13 +72,8 @@ where
     let grain_table0_size = h.l1_len * size_grain_bytes;
     let size_max = h.sectors * SECTOR_SIZE;
 
-    let mut last_entry_special_size = false;
-
-    if kind == ExtentKind::Sparse {
-        if !size_max.is_multiple_of(grain_table0_size) {
-            last_entry_special_size = true;
-        }
-    }
+    let last_entry_special_size = kind == ExtentKind::Sparse &&
+        !size_max.is_multiple_of(grain_table0_size);
 
     // get and read metadata-0
     src.seek(SeekFrom::Start(h.l1_offset))?;
