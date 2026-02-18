@@ -112,12 +112,9 @@ where
 
         src.seek(SeekFrom::Start(*grain_table_offset))?;
 
-        let mut buf = vec![0; grain_table1_elems * 4];
-        src.read_exact(&mut buf)?;
-
-        let grain_table: Vec<u64> = buf.chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
-            .collect();
+        let grain_table = (0..grain_table1_elems)
+            .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
+            .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
         for (i, grain) in grain_table.iter().enumerate() {
             if *grain == 0 {
