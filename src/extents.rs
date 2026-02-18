@@ -1,3 +1,4 @@
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     collections::HashMap,
     io::{Read, Seek, SeekFrom},
@@ -87,12 +88,9 @@ where
     // get and read metadata-0
     src.seek(SeekFrom::Start(h.l1_table_offset))?;
 
-    let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
-    src.read_exact(&mut buf)?;
-
-    let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * SECTOR_SIZE)
-        .collect();
+    let grain_dir_entries = (0..number_of_grain_directory_entries)
+        .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
+        .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
     // get and read metadata-1
     for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
