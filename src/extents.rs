@@ -89,6 +89,7 @@ where
 
     for (i, l2_offset) in l1_entries.iter().enumerate() {
         if clusters_remaining == 0 {
+            // we've exhausted all the clusters; stop
             break;
         }
 
@@ -96,6 +97,7 @@ where
         clusters_remaining -= l2_len;
 
         if *l2_offset == 0 {
+            // the data for this entry is in the parent
             start_index += l2_len as u64;
             continue;
         }
