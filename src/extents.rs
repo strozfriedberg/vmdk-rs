@@ -68,14 +68,12 @@ fn read_grain_table_sparse<R>(
 where
     R: Read + Seek
 {
-    let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
-    let grain_table0_size = h.l1_len * size_grain_bytes;
-    let size_max = h.sectors * SECTOR_SIZE;
-
-    let rest = size_max % grain_table0_size;
-
-    let last_entry_special_size = kind == ExtentKind::Sparse &&
-        !size_max.is_multiple_of(grain_table0_size);
+    // h.sectors: number of sectors in the extent
+    // h.cluster_sectors: number of sectors per cluster
+    // h.l1_offset: offset of l1 grain directory
+    // h.l1_len: number of l1 grain directory entries
+    // h.l2_len: number of l2 grain table entries
+    //      (NB: last l2 group may be smaller for ExtentKind::Sparse)
 
     // get and read metadata-0
     src.seek(SeekFrom::Start(h.l1_offset))?;
@@ -87,40 +85,28 @@ where
     // get and read metadata-1
     let mut grain_table_all = HashMap::new();
     let mut grain_table_start_index = 0;
+    let mut clusters_remaining = h.sectors / h.cluster_sectors;
 
-    for (i, grain_table_offset) in l1_entries.iter().enumerate() {
-/*
-        let grain_table1_elems = if kind == ExtentKind::Sparse {
-            h.l2_len.min(h.l1_len * h.cluster_sectors - grain_table_start_index) as usize
+    for (i, l2_offset) in l1_entries.iter().enumerate() {
+        if clusters_remaining == 0 {
+            break;
         }
-        else {
-            h.l2_len as usize
-        };
 
-        eprintln!("{grain_table1_elems}");
-*/
+        let l2_len = h.l2_len.min(clusters_remaining);
+        clusters_remaining -= l2_len;
 
-        let grain_table1_elems = if last_entry_special_size &&
-            i == l1_entries.len() - 1
-        {
-            rest.div_ceil(size_grain_bytes) as usize
-        }
-        else {
-            h.l2_len as usize
-        };
-
-        if *grain_table_offset == 0 {
-            grain_table_start_index += grain_table1_elems as u64;
+        if *l2_offset == 0 {
+            grain_table_start_index += l2_len as u64;
             continue;
         }
 
-        src.seek(SeekFrom::Start(*grain_table_offset))?;
+        src.seek(SeekFrom::Start(*l2_offset))?;
 
-        let grain_table = (0..grain_table1_elems)
+        let l2_entries = (0..l2_len)
             .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
             .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        for (i, grain) in grain_table.iter().enumerate() {
+        for (i, grain) in l2_entries.iter().enumerate() {
             if *grain == 0 {
                 continue;
             }
@@ -128,7 +114,7 @@ where
             debug_assert!(old.is_none());
         }
 
-        grain_table_start_index += grain_table.len() as u64;
+        grain_table_start_index += l2_len as u64;
     }
 
     Ok(grain_table_all)
