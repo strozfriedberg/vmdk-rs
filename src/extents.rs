@@ -72,13 +72,10 @@ where
     let grain_table0_size = h.l1_len * size_grain_bytes;
     let size_max = h.sectors * SECTOR_SIZE;
     let mut last_entry_special_size = false;
-    let mut number_of_grain_directory_entries = h.l1_len;
 
     if kind == ExtentKind::Sparse {
-        number_of_grain_directory_entries = size_max / grain_table0_size;
         if !size_max.is_multiple_of(grain_table0_size) {
             last_entry_special_size = true;
-            number_of_grain_directory_entries += 1;
         }
     }
 
