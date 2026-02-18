@@ -127,74 +127,50 @@ where
     R: Read + Seek
 {
 /*
-    let size_grain_bytes = h.cluster_sectors * SECTOR_SIZE;
-    let grain_table0_size = h.l1_size as u64 * size_grain_bytes;
-    let size_max = h.sectors * SECTOR_SIZE;
-    let mut last_entry_special_size = false;
-    let mut number_of_grain_directory_entries = h.l1_size as u64;
+    // read level 1
+    src.seek(SeekFrom::Start(h.l1_offset))?;
 
-    if kind == ExtentKind::Sparse {
-        number_of_grain_directory_entries = size_max / grain_table0_size;
-        if !size_max.is_multiple_of(grain_table0_size) {
-            last_entry_special_size = true;
-            number_of_grain_directory_entries += 1;
+    let l1_entries = (0..h.l1_len)
+        .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
+        .collect::<Result<Vec<u64>, std::io::Error>>()?;
+
+    // read level 2
+    let mut grain_table = HashMap::new();
+    let mut start_cluster = 0;
+    let total_clusters = h.sectors / h.cluster_sectors;
+
+    for l2_offset in l1_entries {
+        if start_cluster == total_clusters {
+            // we've exhausted all the clusters; stop
+            break;
         }
-    }
 
-    let mut grain_table_all = HashMap::new();
-    let mut grain_table_start_index = 0;
+        let l2_len = h.l2_len.min(total_clusters - start_cluster);
 
-    // get and read metadata-0
-    h.src.seek(SeekFrom::Start(h.l1_table_offset))?;
-
-    let mut buf = vec![0; number_of_grain_directory_entries as usize * 4];
-    h.src.read_exact(&mut buf)?;
-
-    let grain_dir_entries: Vec<u64> = buf.chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * SECTOR_SIZE)
-        .collect();
-
-    // get and read metadata-1
-    for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
-        let grain_table1_elems = if kind == ExtentKind::Sparse {
-            if last_entry_special_size && i == grain_dir_entries.len() - 1 {
-                let rest = size_max % grain_table0_size;
-                rest.div_ceil(size_grain_bytes) as usize
-            }
-            else {
-                h.l1_size as usize
-            }
-        }
-        else {
-            4096
-        };
-
-        if *grain_table_offset == 0 {
-            grain_table_start_index += grain_table1_elems as u64;
+        if l2_offset == 0 {
+            // the data for this entry is in the parent
+            start_cluster += l2_len;
             continue;
         }
 
-        h.src.seek(SeekFrom::Start(*grain_table_offset))?;
+        src.seek(SeekFrom::Start(l2_offset))?;
 
-        let mut buf = vec![0; grain_table1_elems * 4];
-        h.src.read_exact(&mut buf)?;
+        let l2_entries = (0..l2_len)
+            .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
+            .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        let grain_table: Vec<u64> = buf.chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
-            .collect();
+        grain_table.extend(
+            l2_entries.iter()
+                .enumerate()
+                .filter(|(_, grain)| **grain != 0)
+                .map(|(i, grain)| (start_cluster + i as u64 , *grain))
+        );
 
-        for (i, grain) in grain_table.iter().enumerate() {
-            if *grain == 0 {
-                continue;
-            }
-            let old = grain_table_all.insert(grain_table_start_index + i as u64, *grain);
-            debug_assert!(old.is_none());
-        }
-
-        grain_table_start_index += grain_table.len() as u64;
+        start_cluster += l2_len;
     }
 
-    Ok(grain_table_all)
+    Ok(grain_table)
+
 */
     todo!()
 }
