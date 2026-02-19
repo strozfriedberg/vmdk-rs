@@ -103,6 +103,7 @@ impl Vmdk4Header {
     }
 }
 
+#[derive(Debug)]
 struct VmdkSeSparseConstHeader {
     version: u64,
     capacity: u64,
