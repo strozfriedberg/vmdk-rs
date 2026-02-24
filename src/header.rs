@@ -202,8 +202,8 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
             h.gd_offset
         } * SECTOR_SIZE;
 
-        let l1_sectors_per_entry = (h.num_gtes_per_gt as u64) * h.granularity;
-        let l1_len = h.capacity.div_ceil(l1_sectors_per_entry);
+        let sectors_per_l1_entry = (h.num_gtes_per_gt as u64) * h.granularity;
+        let l1_len = h.capacity.div_ceil(sectors_per_l1_entry);
 
         Self {
             compressed: h.flags & 0x10000 != 0,
