@@ -12,10 +12,10 @@ const SECTOR_SIZE: u64 = 512;
 struct Vmdk3Header {
     version: u32,
     flags: u32,
-    disk_sectors: u32,
-    granularity: u32,
-    l1dir_offset: u32,
-    l1dir_size: u32,
+    disk_sectors: u32, // size of data in sectors
+    granularity: u32,  // number of sectors per grain
+    l1dir_offset: u32, // grain directory offset in sectors
+    l1dir_size: u32,   // number of grain directory entries
     file_sectors: u32,
     cylinders: u32,
     heads: u32,
@@ -45,14 +45,13 @@ impl Vmdk3Header {
 pub struct Vmdk4Header {
     version: u32,
     flags: u32,
-    capacity: u64,
-    granularity: u64,
-    pub desc_offset: u64,
-    desc_size: u64,
-    /* Number of GrainTableEntries per GrainTable */
-    num_gtes_per_gt: u32,
-    rgd_offset: u64,
-    gd_offset: u64,
+    capacity: u64,        // size of data in sectors
+    granularity: u64,     // number of sectors per grain
+    pub desc_offset: u64, // descriptor offset in sectors
+    desc_size: u64,       // descriptor size in sectors
+    num_gtes_per_gt: u32, // grain table entries per grain table
+    rgd_offset: u64,      // secondary grain directory offset in sectors
+    gd_offset: u64,       // grain directory offset in sectors
     grain_offset: u64,
     filler: u8,
     check_bytes: [u8; 4],
@@ -106,9 +105,9 @@ impl Vmdk4Header {
 #[derive(Debug)]
 struct VmdkSeSparseConstHeader {
     version: u64,
-    capacity: u64,
-    grain_size: u64,
-    grain_table_size: u64,
+    capacity: u64,                  // total number of sectors
+    grain_size: u64,                // number of sectors per l2 entry
+    grain_table_size: u64,          // size of each l2 table in ???
     flags: u64,
     reserved1: u64,
     reserved2: u64,
@@ -120,15 +119,15 @@ struct VmdkSeSparseConstHeader {
     journal_header_size: u64,
     journal_offset: u64,
     journal_size: u64,
-    grain_dir_offset: u64,
-    grain_dir_size: u64,
-    grain_tables_offset: u64,
+    grain_dir_offset: u64,          // offset of l1 table in sectors
+    grain_dir_size: u64,            // size of l1 table in ???
+    grain_tables_offset: u64,       // l2 tables base offset in sectors
     grain_tables_size: u64,
     free_bitmap_offset: u64,
     free_bitmap_size: u64,
     backmap_offset: u64,
     backmap_size: u64,
-    grains_offset: u64,
+    grains_offset: u64,             // grains base offset in sectors
     grains_size: u64
 //    pad: [u8; 304]
 }
@@ -171,11 +170,11 @@ impl VmdkSeSparseConstHeader {
 pub struct VmdkSparseMeta {
     pub compressed: bool,
     pub has_zero_grain: bool,
-    pub sectors: u64,
-    pub l1_offset: u64,
-    pub l1_len: u64,
-    pub l2_len: u64,
-    pub cluster_sectors: u64
+    pub sectors: u64,        // total number of sectors
+    pub l1_offset: u64,      // offset of l1 in bytes
+    pub l1_len: u64,         // number of l1 entries
+    pub l2_len: u64,         // number of entries per l2 table
+    pub cluster_sectors: u64 // number of sectors per l2 entry
 }
 
 impl From<Vmdk3Header> for VmdkSparseMeta {
@@ -219,10 +218,13 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
 
 #[derive(Debug)]
 pub struct VmdkSeSparseMeta {
-    pub sectors: u64,
-    pub l1_offset: u64,
-    pub l1_len: u64,
-    pub cluster_sectors: u64
+    pub sectors: u64,           // total number of sectors
+    pub l1_offset: u64,         // offset of l1 in bytes
+    pub l1_len: u64,            // number of l1 entries
+    pub l2_tables_offset: u64,  // base offset of l2 tables in bytes
+    pub l2_len: u64,            // number of entries per l2 table
+    pub cluster_sectors: u64,   // number of sectors per l2 entry
+    pub clusters_offset: u64    // base offset of grains
 }
 
 impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
@@ -230,8 +232,11 @@ impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
         Self {
             sectors: h.capacity,
             l1_offset: h.grain_dir_offset * SECTOR_SIZE,
-            l1_len: h.grain_table_size / 8,
-            cluster_sectors: h.grain_size
+            l1_len: h.grain_dir_size * SECTOR_SIZE / 8,
+            l2_tables_offset: h.grain_tables_offset * SECTOR_SIZE,
+            l2_len: h.grain_table_size * SECTOR_SIZE / 8,
+            cluster_sectors: h.grain_size,
+            clusters_offset: h.grains_offset
         }
     }
 }
