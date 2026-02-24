@@ -161,6 +161,8 @@ where
 
         let l2_len = h.l2_len.min(total_clusters - start_cluster);
 
+        // high nibble of l1 entries are 0 (unallocated) or 1 (allocated)
+
         if l1_entry == 0 {
             // Thank you Mario! But our princess is in another castle!
             // (the data for this entry is in the parent)
@@ -168,17 +170,12 @@ where
             continue;
         }
 
-        if l1_entry & 0xFFFFFFFF00000000 != 0x1000000000000000 {
+        if l1_entry & 0xF000000000000000 != 0x1000000000000000 {
             return Err(std::io::Error::other("bad l1 entry"));
         }
 
-        let l2_index = l1_entry & 0x00000000FFFFFFFF;
+        let l2_index = l1_entry & 0x0FFFFFFFFFFFFFFF;
         let l2_offset = h.l2_tables_offset + l2_index * l2_size;
-
-        if l2_offset > 0x00000000FFFFFFFF {
-            // error
-            return Err(std::io::Error::other("bad l2 entry"));
-        }
 
         src.seek(SeekFrom::Start(l2_offset))?;
 
