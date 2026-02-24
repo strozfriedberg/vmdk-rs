@@ -169,8 +169,7 @@ where
         }
 
         if l1_entry & 0xFFFFFFFF00000000 != 0x1000000000000000 {
-            // error
-            todo!();
+            return Err(std::io::Error::other("bad l1 entry"));
         }
 
         let l2_index = l1_entry & 0x00000000FFFFFFFF;
@@ -178,7 +177,7 @@ where
 
         if l2_offset > 0x00000000FFFFFFFF {
             // error
-            todo!();
+            return Err(std::io::Error::other("bad l2 entry"));
         }
 
         src.seek(SeekFrom::Start(l2_offset))?;
@@ -199,14 +198,16 @@ where
                     1
                 },
                 0x3000000000000000 => {
+                    // allocted grain
                     h.clusters_offset + (
                         ((l2_entry & 0x0FFF000000000000) >> 48) |
                         ((l2_entry & 0x0000FFFFFFFFFFFF) << 12)
                     ) * h.cluster_sectors
                 },
                 _ => {
-                    // error
-                    todo!();
+                    // 0 in high nibble means unallocated grain, which
+                    // should not happen; anything else is also corrupt
+                    return Err(std::io::Error::other("bad l2 entry"));
                 }
             };
 
