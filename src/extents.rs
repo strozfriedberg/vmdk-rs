@@ -83,6 +83,8 @@ where
 
     // read level 2
     let mut grain_table = HashMap::new();
+// FIXME: should be start cluster of this extent, which won't be zero if there
+// are multiple extents
     let mut start_cluster = 0;
     let total_clusters = h.sectors / h.cluster_sectors;
 
@@ -126,20 +128,24 @@ fn read_grain_table_sesparse<R>(
 where
     R: Read + Seek
 {
-/*
     // read level 1
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
     let l1_entries = (0..h.l1_len)
-        .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
+        .map(|_| src.read_u64::<LittleEndian>())
         .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
     // read level 2
     let mut grain_table = HashMap::new();
+// FIXME: should be start cluster of this extent, which won't be zero if there
+// are multiple extents
     let mut start_cluster = 0;
     let total_clusters = h.sectors / h.cluster_sectors;
 
-    for l2_offset in l1_entries {
+    // size in bytes of an l2 table
+    let l2_size = h.l2_len * 8;
+
+    for l1_entry in l1_entries {
         if start_cluster == total_clusters {
             // we've exhausted all the clusters; stop
             break;
@@ -147,32 +153,62 @@ where
 
         let l2_len = h.l2_len.min(total_clusters - start_cluster);
 
-        if l2_offset == 0 {
-            // the data for this entry is in the parent
+        if l1_entry == 0 {
+            // Thank you Mario! But our princess is in another castle!
+            // (the data for this entry is in the parent)
             start_cluster += l2_len;
             continue;
+        }
+
+        if l1_entry & 0xFFFFFFFF00000000 != 0x1000000000000000 {
+            // error
+            todo!();
+        }
+
+        let l2_index = l1_entry & 0x00000000FFFFFFFF;
+        let l2_offset = h.l2_tables_offset + l2_index * l2_size;
+
+        if l2_offset > 0x00000000FFFFFFFF {
+            // error
+            todo!();
         }
 
         src.seek(SeekFrom::Start(l2_offset))?;
 
         let l2_entries = (0..l2_len)
-            .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
+            .map(|_| src.read_u64::<LittleEndian>())
             .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        grain_table.extend(
-            l2_entries.iter()
-                .enumerate()
-                .filter(|(_, grain)| **grain != 0)
-                .map(|(i, grain)| (start_cluster + i as u64 , *grain))
-        );
+        for (i, &l2_entry) in l2_entries.iter().enumerate() {
+            if l2_entry == 0 {
+                // the data for this entry is in the parent
+                continue;
+            }
+
+            let cluster_offset = match l2_entry & 0xF000000000000000 {
+                0x1000000000000000 | 0x2000000000000000 => {
+                    // zeroed grain
+                    1
+                },
+                0x3000000000000000 => {
+                    h.clusters_offset + (
+                        ((l2_entry & 0x0FFF000000000000) >> 48) |
+                        ((l2_entry & 0x0000FFFFFFFFFFFF) << 12)
+                    ) * h.cluster_sectors
+                },
+                _ => {
+                    // error
+                    todo!();
+                }
+            };
+
+            grain_table.insert(start_cluster + i as u64, cluster_offset);
+        }
 
         start_cluster += l2_len;
     }
 
     Ok(grain_table)
-
-*/
-    todo!()
 }
 
 fn read_extent<R, F>(
@@ -210,8 +246,8 @@ where
                 filename,
                 grain_table,
                 grain_size: header.cluster_sectors,
-                has_compressed_grain: true,
-                zeroed_grain_table_entry: false
+                has_compressed_grain: false,
+                zeroed_grain_table_entry: true
             })
         },
         ExtentDescriptionInner::Vmfs { .. } => {
