@@ -121,6 +121,21 @@ fn read_grain_table_sesparse<R>(
 where
     R: Read + Seek
 {
+    /*
+        SESPARSE extents differ from earlier sparse extent types:
+
+            * table entries are 8 bytes instead of 4
+            * l1 entries are rather baroque; see below for how they're read
+            * l1 entries contain indices into the table of l2 tables, instead
+              of offsets to l2 tables
+
+        The only available reference implementation is QEMU's:
+
+            https://github.com/qemu/qemu/blob/master/block/vmdk.c
+
+        We've tried to document which values have which units.
+    */
+
     // read level 1
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
