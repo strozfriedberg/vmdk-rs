@@ -67,13 +67,6 @@ fn read_grain_table_sparse<R>(
 where
     R: Read + Seek
 {
-    // h.sectors: number of sectors in the extent
-    // h.cluster_sectors: number of sectors per cluster
-    // h.l1_offset: offset of l1 grain directory
-    // h.l1_len: number of l1 grain directory entries
-    // h.l2_len: number of l2 grain table entries
-    //      (NB: last l2 group may be smaller)
-
     // read level 1
     src.seek(SeekFrom::Start(h.l1_offset))?;
 
