@@ -79,20 +79,20 @@ where
     let mut grain_table = HashMap::new();
 // FIXME: should be start cluster of this extent, which won't be zero if there
 // are multiple extents
-    let mut start_cluster = 0;
-    let total_clusters = h.sectors / h.cluster_sectors;
+    let mut cur_sector = start_sector;
+    let end_sector = start_sector + h.sectors;
 
     for l2_offset in l1_entries {
-        if start_cluster == total_clusters {
-            // we've exhausted all the clusters; stop
+        if cur_sector == end_sector {
+            // we've exhausted all the sectors; stop
             break;
         }
 
-        let l2_len = h.l2_len.min(total_clusters - start_cluster);
+        let l2_len = h.l2_len.min(h.sectors - (cur_sector - start_sector));
 
         if l2_offset == 0 {
             // the data for this entry is in the parent
-            start_cluster += l2_len;
+            cur_sector += l2_len;
             continue;
         }
 
@@ -106,10 +106,10 @@ where
             l2_entries.iter()
                 .enumerate()
                 .filter(|(_, grain)| **grain != 0)
-                .map(|(i, grain)| (start_cluster + i as u64 , *grain))
+                .map(|(i, grain)| (cur_sector + i as u64 , *grain))
         );
 
-        start_cluster += l2_len;
+        cur_sector += l2_len;
     }
 
     Ok(grain_table)
