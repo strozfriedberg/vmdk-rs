@@ -16,26 +16,15 @@ where
     R: Read + Seek
 {
     if offset > 0 {
-        let mut buf = vec![0; SECTOR_SIZE as usize * 20];
+        let mut buf = vec![];
 
-// TODO: cleanup
         src.seek(SeekFrom::Start(offset * SECTOR_SIZE))?;
-        let mut p = 0;
-        let end = loop {
-            let r = src.read(&mut buf[p..])?;
 
-            if r == 0 {
-                break p;
-            }
+        let mut r = BufReader::new(src.take(20 * SECTOR_SIZE));
+        let len = r.read_until(0, &mut buf)?;
 
-            match buf[p..p + r].iter().position(|c| *c == 0x00) {
-                Some(i) => { break i; },
-                None => { p += r; }
-            }
-        };
-
-        src.rewind()?;
-        Ok(String::from_utf8_lossy(&buf[..end]).into())
+        // read_until includes the delimiter
+        Ok(String::from_utf8_lossy(&buf[..(len - 1)]).into())
     }
     else {
         Ok("".into())
