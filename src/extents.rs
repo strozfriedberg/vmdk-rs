@@ -62,6 +62,7 @@ const SECTOR_SIZE: u64 = 512;
 
 fn read_grain_table_sparse<R>(
     h: &VmdkSparseMeta,
+    start_sector: u64,
     src: &mut R
 ) -> Result<HashMap<u64, u64>, std::io::Error>
 where
@@ -116,6 +117,7 @@ where
 
 fn read_grain_table_sesparse<R>(
     h: &VmdkSeSparseMeta,
+    start_sector: u64,
     src: &mut R
 ) -> Result<HashMap<u64, u64>, std::io::Error>
 where
@@ -219,6 +221,7 @@ where
 
 fn read_extent<R, F>(
     ed: &ExtentDescription,
+    start_sector: u64,
     filename: F,
     mut src: R
 ) -> Result<ExtentStorage, OpenError>
@@ -232,7 +235,11 @@ where
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
             let header = read_header_sparse(src.clone())?;
-            let grain_table = read_grain_table_sparse(&header, &mut src)?;
+            let grain_table = read_grain_table_sparse(
+                &header,
+                start_sector,
+                &mut src
+            )?;
 
             ExtentStorage::Sparse(SparseStorage {
                 file: Box::new(src) as Box<dyn ReadSeek>,
@@ -245,7 +252,11 @@ where
         },
         ExtentDescriptionInner::SeSparse { .. } => {
             let header = read_header_sesparse(src.clone())?;
-            let grain_table = read_grain_table_sesparse(&header, &mut src)?;
+            let grain_table = read_grain_table_sesparse(
+                &header,
+                start_sector,
+                &mut src
+            )?;
 
             ExtentStorage::Sparse(SparseStorage {
                 file: Box::new(src) as Box<dyn ReadSeek>,
@@ -285,6 +296,8 @@ pub fn read_extents(
 {
     let mut extents = vec![];
 
+    let mut start_sector = 0;
+
     for ed in eds {
         let filename = ed.filename();
 
@@ -313,20 +326,17 @@ pub fn read_extents(
             seg_len
         );
 
-        let storage = read_extent(ed, filename, crs)
+        let storage = read_extent(ed, start_sector, filename, crs)
             .map_err(|e| e.with_path(ed_url))?;
 
         extents.push(Extent {
             sectors: ed.sectors,
-            start_sector: 0,
+            start_sector,
             storage
         });
 
+        start_sector += ed.sectors;
         idx += 1;
-    }
-
-    for i in 1..extents.len() {
-        extents[i].start_sector = extents[i - 1].start_sector + extents[i - 1].sectors;
     }
 
     Ok(extents)
