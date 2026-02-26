@@ -37,7 +37,7 @@ impl Read for CacheReadSeek {
         buf: &mut [u8]
     ) -> Result<usize, std::io::Error>
     {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().expect("poisoned");
 
         // check that we don't read past the end of the source
         let send = cache.end(self.idx)?;
@@ -62,7 +62,7 @@ impl Seek for CacheReadSeek {
         pos: SeekFrom
     ) -> Result<u64, std::io::Error>
     {
-        let end = self.cache.lock().unwrap().end(self.idx)?;
+        let end = self.cache.lock().expect("poisoned").end(self.idx)?;
 
         let (base, offset) = match pos {
             SeekFrom::Start(n) => (n, 0),
