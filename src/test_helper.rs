@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use rand::Rng;
 use sha1::{Digest, Sha1};
 

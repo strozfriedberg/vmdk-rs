@@ -1,3 +1,4 @@
+#![cfg(test)]
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TestData<'a> {
