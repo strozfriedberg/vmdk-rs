@@ -8,7 +8,7 @@ if [[ $Target == 'windows' && $Architecture == '32' ]]; then
 fi
 
 if [[ $Target == 'windows'  ]]; then
-  # --meson-paths ensures we produce libvmkd.dll.a instead of vmdk.dll.a.
+  # --meson-paths ensures we produce libvmkd.dll.a instead of vmdk.dll.a
   RUST_OPTS="--target x86_64-pc-windows-gnu --meson-paths"
 fi
 
