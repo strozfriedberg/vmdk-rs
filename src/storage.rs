@@ -66,12 +66,25 @@ struct CompressedGrainHeader {
 fn read_and_decompress_grain(
     file: &mut Box<dyn ReadSeek>,
     grain_index: u64,
+    grain_size: u64
 ) -> std::io::Result<Vec<u8>>
 {
     let cgh = CompressedGrainHeader {
         _lba: file.read_u64::<LittleEndian>()?,
         data_size: file.read_u32::<LittleEndian>()?,
     };
+
+    // The decompressed data should not be larger than the grain size.
+    // zlib increases the size of incompressible data by a tiny amount
+    // so if we see the size of the compressed data is more than twice
+    // the grain size, the data size we've read from the header is clearly
+    // corrupt.
+    if cgh.data_size as u64 > 2 * grain_size {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            CrazyGrainIndex(grain_index)
+        ));
+    }
 
     let header: u16 = file.read_u16::<BigEndian>()?;
 
@@ -87,10 +100,27 @@ fn read_and_decompress_grain(
     file.read_exact(buffer.as_mut_slice())?;
 
     let mut decoder = DeflateDecoder::new(&*buffer.as_mut_slice());
-    let mut decoded_data = vec![];
-    decoder.read_to_end(&mut decoded_data)?;
+    let mut buf = vec![0; grain_size as usize];
+    let mut c = 0;
 
-    Ok(decoded_data)
+    loop {
+       let r = decoder.read(&mut buf[c..])?;
+        if r == 0 {
+            break;
+        }
+
+        if c == buf.len() {
+            // The decompressed data is larger than the grain size!
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                CrazyGrainIndex(grain_index)
+            ));
+        }
+
+        c += r;
+    }
+
+    Ok(buf)
 }
 
 impl SparseStorage {
@@ -124,7 +154,8 @@ impl SparseStorage {
 
                 let grain_data = read_and_decompress_grain(
                     &mut self.file,
-                    grain_index
+                    grain_index,
+                    grain_size
                 )?;
 
                 buf.clone_from_slice(
