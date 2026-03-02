@@ -93,7 +93,7 @@ impl Vmdk4Header {
             // (0xFFFFFFFFFFFFFFFF) (GD_AT_END) in a Stream-Optimized Compressed
             // Sparse Extent there should be a secondary file header stored at
             // offset -1024 relative from the end of the file (stream)
-            r.seek(SeekFrom::End(1024))?;
+            r.seek(SeekFrom::End(-1024))?;
             Self::from_reader_inner(r)
         }
         else {
