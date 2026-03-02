@@ -2,11 +2,6 @@
 
 . .world/build_config.sh
 
-# don't build for 32-bit Windows for now
-if [[ $Target == 'windows' && $Architecture == '32' ]]; then
-  exit
-fi
-
 # if we're building for windows, we need to install the windows toolchain
 if [ "$Target" = 'windows' ]; then
 # rustup lock wrapper
@@ -16,6 +11,7 @@ if [ "$Target" = 'windows' ]; then
 
   # Critical section
   rustup target add x86_64-pc-windows-gnu
+  rustup target add i686-pc-windows-gnu
 
 ) 9>/tmp/.rustup.lock
 fi
