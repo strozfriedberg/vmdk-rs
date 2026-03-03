@@ -241,36 +241,6 @@ impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
     }
 }
 
-fn try_vmdk3_header(
-    mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseMeta, DeserializationError>
-{
-    let h = Vmdk3Header::from_reader(&mut src)
-        .map_err(|e| DeserializationError("Vmdk3Header", e))?;
-
-    Ok(VmdkSparseMeta::from(h))
-}
-
-fn try_vmdk4_header(
-    mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSparseMeta, OpenErrorKind>
-{
-    let h = Vmdk4Header::from_reader(&mut src)
-        .map_err(|e| DeserializationError("Vmdk4Header", e))?;
-
-    Ok(VmdkSparseMeta::from(h))
-}
-
-fn try_vmdk_sesparse_const_header(
-    mut src: Box<dyn ReadSeek>
-) -> Result<VmdkSeSparseMeta, OpenErrorKind>
-{
-    let h = VmdkSeSparseConstHeader::from_reader(&mut src)
-        .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?;
-
-    Ok(VmdkSeSparseMeta::from(h))
-}
-
 const VMDK3_MAGIC: [u8; 4] = [0x43, 0x4F, 0x57, 0x44];
 const VMDK4_MAGIC: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
 const VMDK_SESPARSE_MAGIC: [u8; 8] = [0xBE, 0xBA, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00];
@@ -325,13 +295,27 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
         src.seek(SeekFrom::Start(ft.sig_len() as u64))?;
     }
 
-    let src = Box::new(src) as Box<dyn ReadSeek>;
+    let mut src = Box::new(src) as Box<dyn ReadSeek>;
 
-    match ft {
-        Some(FileType::Vmdk3) => Ok(try_vmdk3_header(src)?),
-        Some(FileType::Vmdk4) => Ok(try_vmdk4_header(src)?),
-        _ => Err(OpenErrorKind::InvalidFileHeader)
+    let meta: VmdkSparseMeta = match ft {
+        Some(FileType::Vmdk3) =>
+            Vmdk3Header::from_reader(&mut src)
+                .map_err(|e| DeserializationError("Vmdk3Header", e))?
+                .into(),
+        Some(FileType::Vmdk4) =>
+            Vmdk4Header::from_reader(&mut src)
+                .map_err(|e| DeserializationError("Vmdk4Header", e))?
+                .into(),
+        _ => return Err(OpenErrorKind::InvalidFileHeader)
+    };
+
+    if meta.l1_len * meta.l2_len *
+       meta.cluster_sectors * SECTOR_SIZE > (1 << 41) {
+        // 2TB is the maximum supported size for VMDK3 and VMDK4
+        return Err(OpenErrorKind::InvalidFileHeader);
     }
+
+    Ok(meta)
 }
 
 pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
@@ -348,8 +332,18 @@ pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
     }
 
     if let Some(FileType::VmdkSeSparse) = ft {
-        let src = Box::new(src) as Box<dyn ReadSeek>;
-        Ok(try_vmdk_sesparse_const_header(src)?)
+        let mut src = Box::new(src) as Box<dyn ReadSeek>;
+        let meta: VmdkSeSparseMeta = VmdkSeSparseConstHeader::from_reader(&mut src)
+            .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?
+            .into();
+
+        if meta.l1_len * meta.l2_len *
+           meta.cluster_sectors * SECTOR_SIZE > (1 << 46) {
+            // 64TB is the maximum supported size for SESPARSE
+            return Err(OpenErrorKind::InvalidFileHeader);
+        }
+
+        Ok(meta)
     }
     else {
         Err(OpenErrorKind::InvalidFileHeader)
