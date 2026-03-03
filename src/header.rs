@@ -205,6 +205,14 @@ impl TryFrom<Vmdk4Header> for VmdkSparseMeta {
     type Error = OpenErrorKind;
 
     fn try_from(h: Vmdk4Header) -> Result<Self, Self::Error> {
+        if h.version > 3 ||
+            h.num_gtes_per_gt == 0 ||
+            h.num_gtes_per_gt > 512 ||
+            h.granularity == 0
+        {
+            return Err(OpenErrorKind::InvalidFileHeader);
+        }
+
         // check flags to select primary or secondary grain dir
         let l1_offset = if h.flags & 0x02 != 0 {
             h.rgd_offset
@@ -251,6 +259,21 @@ impl TryFrom<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
     type Error = OpenErrorKind;
 
     fn try_from(h: VmdkSeSparseConstHeader) -> Result<Self, Self::Error> {
+        if h.version != 0x0000000200000001 ||
+            h.grain_size != 8 ||
+            h.grain_table_size != 64 ||
+            h.flags != 0 ||
+            h.reserved1 != 0 ||
+            h.reserved2 != 0 ||
+            h.reserved3 != 0 ||
+            h.reserved4 != 0
+        {
+            // none of these are supported; if these fields aren't as
+            // expected, we probably can't read successfully
+            return Err(OpenErrorKind::InvalidFileHeader);
+        }
+
+        // possibly the 8's here are the grain_size?
         let meta = Self {
             sectors: h.capacity,
             l1_offset: h.grain_dir_offset * SECTOR_SIZE,
