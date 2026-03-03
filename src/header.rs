@@ -177,9 +177,11 @@ pub struct VmdkSparseMeta {
     pub cluster_sectors: u64 // number of sectors per l2 entry
 }
 
-impl From<Vmdk3Header> for VmdkSparseMeta {
-    fn from(h: Vmdk3Header) -> Self {
-        Self {
+impl TryFrom<Vmdk3Header> for VmdkSparseMeta {
+    type Error = OpenErrorKind;
+
+    fn try_from(h: Vmdk3Header) -> Result<Self, Self::Error> {
+        let meta = Self {
             compressed: false,
             has_zero_grain: false,
             sectors: h.disk_sectors as u64,
@@ -187,12 +189,22 @@ impl From<Vmdk3Header> for VmdkSparseMeta {
             l1_len: h.l1dir_size as u64,
             l2_len: 4096,
             cluster_sectors: h.granularity as u64
+        };
+
+        if meta.l1_len * meta.l2_len *
+           meta.cluster_sectors * SECTOR_SIZE > (1 << 41) {
+            // 2TB is the maximum supported size for VMDK3
+            return Err(OpenErrorKind::InvalidFileHeader);
         }
+
+        Ok(meta)
     }
 }
 
-impl From<Vmdk4Header> for VmdkSparseMeta {
-    fn from(h: Vmdk4Header) -> Self {
+impl TryFrom<Vmdk4Header> for VmdkSparseMeta {
+    type Error = OpenErrorKind;
+
+    fn try_from(h: Vmdk4Header) -> Result<Self, Self::Error> {
         // check flags to select primary or secondary grain dir
         let l1_offset = if h.flags & 0x02 != 0 {
             h.rgd_offset
@@ -204,7 +216,7 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
         let sectors_per_l1_entry = (h.num_gtes_per_gt as u64) * h.granularity;
         let l1_len = h.capacity.div_ceil(sectors_per_l1_entry);
 
-        Self {
+        let meta = Self {
             compressed: h.flags & 0x10000 != 0,
             has_zero_grain: h.flags & 0x04 != 0,
             sectors: h.capacity,
@@ -212,7 +224,15 @@ impl From<Vmdk4Header> for VmdkSparseMeta {
             l1_len,
             l2_len: h.num_gtes_per_gt as u64,
             cluster_sectors: h.granularity
+        };
+
+        if meta.l1_len * meta.l2_len *
+           meta.cluster_sectors * SECTOR_SIZE > (1 << 41) {
+            // 2TB is the maximum supported size for VMDK4
+            return Err(OpenErrorKind::InvalidFileHeader);
         }
+
+        Ok(meta)
     }
 }
 
@@ -227,9 +247,11 @@ pub struct VmdkSeSparseMeta {
     pub clusters_offset: u64    // base offset of grains
 }
 
-impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
-    fn from(h: VmdkSeSparseConstHeader) -> Self {
-        Self {
+impl TryFrom<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
+    type Error = OpenErrorKind;
+
+    fn try_from(h: VmdkSeSparseConstHeader) -> Result<Self, Self::Error> {
+        let meta = Self {
             sectors: h.capacity,
             l1_offset: h.grain_dir_offset * SECTOR_SIZE,
             l1_len: h.grain_dir_size * SECTOR_SIZE / 8,
@@ -237,7 +259,15 @@ impl From<VmdkSeSparseConstHeader> for VmdkSeSparseMeta {
             l2_len: h.grain_table_size * SECTOR_SIZE / 8,
             cluster_sectors: h.grain_size,
             clusters_offset: h.grains_offset
+        };
+
+        if meta.l1_len * meta.l2_len *
+           meta.cluster_sectors * SECTOR_SIZE > (1 << 46) {
+            // 64TB is the maximum supported size for SESPARSE
+            return Err(OpenErrorKind::InvalidFileHeader);
         }
+
+        Ok(meta)
     }
 }
 
@@ -297,25 +327,17 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
 
     let mut src = Box::new(src) as Box<dyn ReadSeek>;
 
-    let meta: VmdkSparseMeta = match ft {
+    match ft {
         Some(FileType::Vmdk3) =>
             Vmdk3Header::from_reader(&mut src)
                 .map_err(|e| DeserializationError("Vmdk3Header", e))?
-                .into(),
+                .try_into(),
         Some(FileType::Vmdk4) =>
             Vmdk4Header::from_reader(&mut src)
                 .map_err(|e| DeserializationError("Vmdk4Header", e))?
-                .into(),
-        _ => return Err(OpenErrorKind::InvalidFileHeader)
-    };
-
-    if meta.l1_len * meta.l2_len *
-       meta.cluster_sectors * SECTOR_SIZE > (1 << 41) {
-        // 2TB is the maximum supported size for VMDK3 and VMDK4
-        return Err(OpenErrorKind::InvalidFileHeader);
+                .try_into(),
+        _ => Err(OpenErrorKind::InvalidFileHeader)
     }
-
-    Ok(meta)
 }
 
 pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
@@ -333,17 +355,9 @@ pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
 
     if let Some(FileType::VmdkSeSparse) = ft {
         let mut src = Box::new(src) as Box<dyn ReadSeek>;
-        let meta: VmdkSeSparseMeta = VmdkSeSparseConstHeader::from_reader(&mut src)
+        VmdkSeSparseConstHeader::from_reader(&mut src)
             .map_err(|e| DeserializationError("VmdkSeSparseConstHeader", e))?
-            .into();
-
-        if meta.l1_len * meta.l2_len *
-           meta.cluster_sectors * SECTOR_SIZE > (1 << 46) {
-            // 64TB is the maximum supported size for SESPARSE
-            return Err(OpenErrorKind::InvalidFileHeader);
-        }
-
-        Ok(meta)
+            .try_into()
     }
     else {
         Err(OpenErrorKind::InvalidFileHeader)
