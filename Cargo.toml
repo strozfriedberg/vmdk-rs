@@ -38,4 +38,4 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 url = "2.5.7"
 
 [dev-dependencies]
-rand = "0.9"
+rand = "0.10"
