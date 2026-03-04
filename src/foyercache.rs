@@ -44,15 +44,23 @@ impl FoyerCache<DefaultHasher> {
     {
         let cache_dir = tempfile::tempdir()?;
 
-        let device = FsDeviceBuilder::new(cache_dir.path())
-            .with_capacity(disk_size)
-            .build()
-            .map_err(std::io::Error::other)?;
-
-        let cache = HybridCacheBuilder::new()
+        let builder = HybridCacheBuilder::new()
             .memory(mem_size)
-            .storage()
-            .with_engine_config(BlockEngineConfig::new(device))
+            .storage();
+
+        let builder = if disk_size > 0 {
+            let device = FsDeviceBuilder::new(cache_dir.path())
+                .with_capacity(disk_size)
+                .build()
+                .map_err(std::io::Error::other)?;
+
+            builder.with_engine_config(BlockEngineConfig::new(device))
+        }
+        else {
+            builder
+        };
+
+        let cache = builder
             .build()
             .await
             .map_err(std::io::Error::other)?;
