@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use rand::Rng;
+use rand::RngExt;
 use sha1::{Digest, Sha1};
 
 pub fn do_hash<RF>(
