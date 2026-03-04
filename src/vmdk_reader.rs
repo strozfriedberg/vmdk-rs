@@ -220,7 +220,8 @@ impl VmdkReader {
             FoyerCache::with_default_cache(
                 cache_chunk_size,
                 cache_mem_size,
-                cache_disk_size
+                cache_disk_size,
+                0
             )
         )
         .map_err(InitError::CacheSetupFailed)
