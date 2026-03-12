@@ -76,23 +76,23 @@ Read from a VMDK in C:
 
 |                            | vmdk-rs            | libvmdk            | go-vmdk            |
 | -------------------------- | ------------------ | ------------------ | ------------------ |
-| VMDK3 (COWD)               | :white-check-mark: | :white-check-mark: |                    |
-| VMDK4                      | :white-check-mark: |                    | :white-check-mark: |
-| FLAT extents               | :white-check-mark: | :white-check-mark: | :white-check-mark: |
-| VMFS extents               | :white-check-mark: | :white-check-mark: | :white-check-mark: |
-| VMFSSPARSE extents         | :white-check-mark: | :white-check-mark: |                    |
-| VMFSRAW extents            | :white-check-mark: | :white-check-mark: |                    |
-| VMFSRDM extents            | :white-check-mark: | :white-check-mark: |                    |
-| SPARSE extents             | :white-check-mark: | :white-check-mark: | :white-check-mark: |
-| SESPARSE extents           | :white-check-mark: |                    |                    |
-| ZERO extents               |                    | :white-check-mark: |                    |
-| grain compression          | :white-check-mark: | :white-check-mark: |                    |
-| data markers               | :white-check-mark: | :white-check-mark: |                    |
-| zeroed grain table entries | :white-check-mark: | :white-check-mark: |                    |
-} embedded descriptors       | :white-check-mark: | :white-check-mark: |                    |
-| delta links (snapshots)    | :white-check-mark: | :white-check-mark: |                    |
-| read from local filesystem | :white-check-mark: | :white-check-mark: | :white-check-mark: |
-| read from S3               | :white-check-mark: |                    |                    |
+| VMDK3 (COWD)               | :white_check_mark: | :white_check_mark: |                    |
+| VMDK4                      | :white_check_mark: |                    | :white_check_mark: |
+| FLAT extents               | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| VMFS extents               | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| VMFSSPARSE extents         | :white_check_mark: | :white_check_mark: |                    |
+| VMFSRAW extents            | :white_check_mark: | :white_check_mark: |                    |
+| VMFSRDM extents            | :white_check_mark: | :white_check_mark: |                    |
+| SPARSE extents             | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| SESPARSE extents           | :white_check_mark: |                    |                    |
+| ZERO extents               |                    | :white_check_mark: |                    |
+| grain compression          | :white_check_mark: | :white_check_mark: |                    |
+| data markers               | :white_check_mark: | :white_check_mark: |                    |
+| zeroed grain table entries | :white_check_mark: | :white_check_mark: |                    |
+} embedded descriptors       | :white_check_mark: | :white_check_mark: |                    |
+| delta links (snapshots)    | :white_check_mark: | :white_check_mark: |                    |
+| read from local filesystem | :white_check_mark: | :white_check_mark: | :white_check_mark: |
+| read from S3               | :white_check_mark: |                    |                    |
 
 ### Copyright
 
