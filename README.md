@@ -74,25 +74,25 @@ Read from a VMDK in C:
 
 ### Comparison with other VMDK libraries
 
-|                            | vmdk-rs             | libvmdk             | go-vmdk             |
-| -------------------------- | ------------------- | ------------------- | ------------------- |
-| VMDK3 (COWD)               | :check-mark-button: | :check-mark-button: |                     |
-| VMDK4                      | :check-mark-button: |                     | :check-mark-button: |
-| FLAT extents               | :check-mark-button: | :check-mark-button: | :check-mark-button: |
-| VMFS extents               | :check-mark-button: | :check-mark-button: | :check-mark-button: |
-| VMFSSPARSE extents         | :check-mark-button: | :check-mark-button: |                     |
-| VMFSRAW extents            | :check-mark-button: | :check-mark-button: |                     |
-| VMFSRDM extents            | :check-mark-button: | :check-mark-button: |                     |
-| SPARSE extents             | :check-mark-button: | :check-mark-button: | :check-mark-button: |
-| SESPARSE extents           | :check-mark-button: |                     |                     |
-| ZERO extents               |                     | :check-mark-button: |                     |
-| grain compression          | :check-mark-button: | :check-mark-button: |                     |
-| data markers               | :check-mark-button: | :check-mark-button: |                     |
-| zeroed grain table entries | :check-mark-button: | :check-mark-button: |                     |
-} embedded descriptors       | :check-mark-button: | :check-mark-button: |                     |
-| delta links (snapshots)    | :check-mark-button: | :check-mark-button: |                     |
-| read from local filesystem | :check-mark-button: | :check-mark-button: | :check-mark-button: |
-| read from S3               | :check-mark-button: |                     |                     |
+|                            | vmdk-rs            | libvmdk            | go-vmdk            |
+| -------------------------- | ------------------ | ------------------ | ------------------ |
+| VMDK3 (COWD)               | :white-check-mark: | :white-check-mark: |                    |
+| VMDK4                      | :white-check-mark: |                    | :white-check-mark: |
+| FLAT extents               | :white-check-mark: | :white-check-mark: | :white-check-mark: |
+| VMFS extents               | :white-check-mark: | :white-check-mark: | :white-check-mark: |
+| VMFSSPARSE extents         | :white-check-mark: | :white-check-mark: |                    |
+| VMFSRAW extents            | :white-check-mark: | :white-check-mark: |                    |
+| VMFSRDM extents            | :white-check-mark: | :white-check-mark: |                    |
+| SPARSE extents             | :white-check-mark: | :white-check-mark: | :white-check-mark: |
+| SESPARSE extents           | :white-check-mark: |                    |                    |
+| ZERO extents               |                    | :white-check-mark: |                    |
+| grain compression          | :white-check-mark: | :white-check-mark: |                    |
+| data markers               | :white-check-mark: | :white-check-mark: |                    |
+| zeroed grain table entries | :white-check-mark: | :white-check-mark: |                    |
+} embedded descriptors       | :white-check-mark: | :white-check-mark: |                    |
+| delta links (snapshots)    | :white-check-mark: | :white-check-mark: |                    |
+| read from local filesystem | :white-check-mark: | :white-check-mark: | :white-check-mark: |
+| read from S3               | :white-check-mark: |                    |                    |
 
 ### Copyright
 
