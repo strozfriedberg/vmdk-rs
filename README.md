@@ -49,7 +49,7 @@ Read from a VMDK in C:
     VmdkError* err = nullptr;
     VmdkHandle* handle = vmdk_open(vmdk_path, &err);
     if (err) {
-        eprintf(err->message);
+        printf("%s", err->message);
         vmdk_free_error(err);
         return;
     }
@@ -59,7 +59,7 @@ Read from a VMDK in C:
     while (offset < handle.image_size) {
         uintptr_t r = vmdk_read(handle, offset, buf, sizeof(buf), &err);
         if (err) {
-            eprintf(err->message);
+            printf("%s", err->message);
             vmdk_free_error(err);
             return;
         }
