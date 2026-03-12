@@ -25,25 +25,22 @@ Sample of usage:
 ```
     use vmdk::vmdk_reader::VmdkReader;
 
-    fn read_vmdk(vmdk_path: &str) {
-        let vmdk_reader = VmdkReader::open(&vmdk_path).unwrap();
+    let vmdk_reader = VmdkReader::open(&vmdk_path).unwrap();
 
-        let mut buf: Vec<u8> = vec![0; 1048576];
-        let mut offset = 0;
-        while offset < vmdk_reader.total_size {
-            let read = vmdk_reader.read_at_offset(offset, &mut buf).unwrap();
-            if read == 0 {
-                break;
-            }
-
-            // process buf[..read]
-
-            offset += read as u64;
+    let mut buf: Vec<u8> = vec![0; 1048576];
+    let mut offset = 0;
+    while offset < vmdk_reader.total_size {
+        let read = vmdk_reader.read_at_offset(offset, &mut buf).unwrap();
+        if read == 0 {
+            break;
         }
-    }
 
+        // do something with buf[..read]
+
+        offset += read as u64;
+    }
 ```
 
 ### Copyright
 
-Copyright 2025, LevelBlue. `vmdk-rs` is licensed under the Apache License, Version 2.0.
+Copyright 2025-6, LevelBlue. `vmdk-rs` is licensed under the Apache License, Version 2.0.
