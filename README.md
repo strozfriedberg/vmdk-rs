@@ -10,7 +10,6 @@ research and testing.
 * VMDK3 COWD (sparse)
 * VMDK4 (sparse)
 * SESPARSE
-
 * flat types: monolithicFlat, 2GbMaxExtentFlat, vmfsThin
 * sparse types: monolithicSparse, 2GbMaxExtentSparse, vmfsSparse, streamOptimized
 
