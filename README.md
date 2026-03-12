@@ -89,7 +89,7 @@ Read from a VMDK in C:
 | grain compression          | :white_check_mark: | :white_check_mark: |                    |
 | data markers               | :white_check_mark: | :white_check_mark: |                    |
 | zeroed grain table entries | :white_check_mark: | :white_check_mark: |                    |
-} embedded descriptors       | :white_check_mark: | :white_check_mark: |                    |
+| embedded descriptors       | :white_check_mark: | :white_check_mark: |                    |
 | delta links (snapshots)    | :white_check_mark: | :white_check_mark: |                    |
 | read from local filesystem | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 | read from S3               | :white_check_mark: |                    |                    |
