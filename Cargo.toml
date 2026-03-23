@@ -22,6 +22,7 @@ capi = []
 [dependencies]
 async-trait = "0.1.89"
 byteorder = "1.5"
+bytesize = "2.3.1"
 clap = { version = "4.1.7", features = ["derive"] }
 foyer = { version = "0.22", features = [ "serde" ] }
 foyer-common = "0.22"
