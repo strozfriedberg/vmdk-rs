@@ -16,7 +16,7 @@ use vmdkrs::vmdk_reader::{VmdkError, VmdkReader};
 #[derive(Parser)]
 struct Args {
     /// Path to vmdk disk image
-    vmdk_paths: Vec<String>,
+    vmdk_paths: Vec<String>
 }
 
 fn display_progress(
