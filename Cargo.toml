@@ -28,6 +28,7 @@ foyer = { version = "0.22", features = [ "serde" ] }
 foyer-common = "0.22"
 flate2 = "1"
 futures = "0.3.31"
+hex = "0.4.3"
 regex = "1"
 rust-s3 = "0.37.1"
 sha-1 = "^0.10"

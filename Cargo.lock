@@ -2384,6 +2384,7 @@ dependencies = [
  "foyer",
  "foyer-common",
  "futures",
+ "hex",
  "rand 0.10.0",
  "regex",
  "rust-s3",
