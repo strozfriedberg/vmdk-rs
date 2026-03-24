@@ -63,6 +63,14 @@ pub enum ReadError {
     IoError(#[from] io::Error)
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum VmdkError {
+    #[error("{0}")]
+    OpenError(#[from] OpenError),
+    #[error("{0}")]
+    ReadError(#[from] ReadError)
+}
+
 fn path_or_url_to_url<P: AsRef<str>>(p: P) -> Option<Url> {
     match Url::parse(p.as_ref()) {
         // might be a path; make it absolute and reparse
