@@ -35,8 +35,11 @@ fn display_progress(
     );
 }
 
-fn do_hash(vmdk_path: &str) -> Result<Vec<u8>, VmdkError> {
-    let mut vmdk_reader = VmdkReader::open(vmdk_path)?;
+fn do_hash<P>(path: P) -> Result<Vec<u8>, VmdkError>
+where
+    P: AsRef<str>
+{
+    let mut vmdk_reader = VmdkReader::open(path.as_ref())?;
     let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];
     let mut offset = 0;
@@ -81,13 +84,9 @@ fn do_hash(vmdk_path: &str) -> Result<Vec<u8>, VmdkError> {
     Ok(hasher.finalize().to_vec())
 }
 
-fn run(paths: impl IntoIterator<Item: AsRef<str>>) -> Result<(), VmdkError> {
-    for p in paths {
-        println!(
-            "{}: {}",
-            p.as_ref(),
-            hex::encode(do_hash(p.as_ref())?)
-        );
+fn run(args: Args) -> Result<(), VmdkError> {
+    for p in &args.vmdk_paths {
+        println!("{p}: {}", hex::encode(do_hash(p)?));
     }
     Ok(())
 }
@@ -121,6 +120,11 @@ fn main() -> ExitCode {
 
     let args = Args::parse();
 
-    run(args.vmdk_paths)
-        .map_or(ExitCode::FAILURE, |_| ExitCode::SUCCESS)
+    match run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{}", e);
+            ExitCode::FAILURE
+        }
+    }
 }
