@@ -102,6 +102,7 @@ fn main() {
                     // log at info by default
                     "info",
                     // foyer is noisy below warn level
+                    "foyer=warn",
                     "foyer_memory=warn",
                     "foyer_storage=warn"
                 ].join(",").into()
