@@ -15,7 +15,7 @@ use vmdkrs::vmdk_reader::{VmdkError, VmdkReader};
 
 #[derive(Parser)]
 struct Args {
-    /// Path to vmdk disk image
+    // Paths to vmdk disk images
     vmdk_paths: Vec<String>
 }
 
