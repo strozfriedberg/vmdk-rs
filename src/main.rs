@@ -1,17 +1,20 @@
 use bytesize::ByteSize;
 use clap::Parser;
 use sha1::{Digest, Sha1};
-use std::time::{Duration, Instant};
+use std::{
+    process::ExitCode,
+    time::{Duration, Instant}
+};
 use tracing_subscriber::{
     EnvFilter,
     layer::SubscriberExt,
     util::SubscriberInitExt
 };
 
-use vmdkrs::vmdk_reader::VmdkReader;
+use vmdkrs::vmdk_reader::{VmdkError, VmdkReader};
 
 #[derive(Parser)]
-struct Cli {
+struct Args {
     /// Path to vmdk disk image
     vmdk_paths: Vec<String>,
 }
@@ -32,8 +35,8 @@ fn display_progress(
     );
 }
 
-fn do_hash(vmdk_path: &str) -> String /*hash*/ {
-    let mut vmdk_reader = VmdkReader::open(vmdk_path).unwrap();
+fn do_hash(vmdk_path: &str) -> Result<Vec<u8>, VmdkError> {
+    let mut vmdk_reader = VmdkReader::open(vmdk_path)?;
     let mut hasher = Sha1::new();
     let mut buf: Vec<u8> = vec![0; 1048576];
     let mut offset = 0;
@@ -47,12 +50,7 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
 
     while offset < vmdk_reader.image_size {
         let buf_size = buf.len();
-        let read = match vmdk_reader.read_at_offset(offset, &mut buf[..buf_size]) {
-            Ok(v) => v,
-            Err(e) => {
-                panic!("{:?}", e);
-            }
-        };
+        let read = vmdk_reader.read_at_offset(offset, &mut buf[..buf_size])?;
 
         if read == 0 {
             break;
@@ -80,11 +78,21 @@ fn do_hash(vmdk_path: &str) -> String /*hash*/ {
         start
     );
 
-    let result = hasher.finalize();
-    format!("{:x}", result)
+    Ok(hasher.finalize().to_vec())
 }
 
-fn main() {
+fn run(paths: impl IntoIterator<Item: AsRef<str>>) -> Result<(), VmdkError> {
+    for p in paths {
+        println!(
+            "{}: {}",
+            p.as_ref(),
+            hex::encode(do_hash(p.as_ref())?)
+        );
+    }
+    Ok(())
+}
+
+fn main() -> ExitCode {
     let stderr_layer = tracing_subscriber::fmt::layer()
 //        .with_current_span(true)
         .without_time()
@@ -111,9 +119,8 @@ fn main() {
         .with(stderr_layer)
         .init();
 
-    let cli = Cli::parse();
-    let vmdk_paths: Vec<&str> = cli.vmdk_paths.iter().map(String::as_str).collect();
-    for s in vmdk_paths {
-        println!("{}: {}", s, do_hash(s));
-    }
+    let args = Args::parse();
+
+    run(args.vmdk_paths)
+        .map_or(ExitCode::FAILURE, |_| ExitCode::SUCCESS)
 }
