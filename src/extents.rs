@@ -314,7 +314,7 @@ pub fn read_extents(
 
         let seg_len = src.end();
 
-        cache.lock().unwrap().add_source(idx, src);
+        cache.lock().expect("poisoned").add_source(idx, src);
 
         let crs = CacheReadSeek::new(
             cache.clone(),
