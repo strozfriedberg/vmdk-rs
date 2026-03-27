@@ -148,7 +148,7 @@ fn handle_image(
     let src = source_for_url(current_url, &runtime)?;
     let seg_len = src.end();
 
-    cache.lock().unwrap().add_source(idx, src);
+    cache.lock().expect("poisoned").add_source(idx, src);
 
     let mut crs = CacheReadSeek::new(
         cache.clone(),
