@@ -168,7 +168,12 @@ fn handle_image(
         Some(FileType::Vmdk4) => {
             crs.seek(SeekFrom::Start(FileType::Vmdk4.sig_len() as u64))?;
             let h = Vmdk4Header::from_reader(&mut crs)?;
-            read_descriptor_internal(&mut crs, h.desc_offset)?
+            if h.desc_offset > 0 {
+                read_descriptor_internal(&mut crs, h.desc_offset)?
+            }
+            else {
+                "".into()
+            }
         },
         // this is a descriptor file
         None => {
