@@ -15,20 +15,15 @@ pub fn read_descriptor_internal<R>(
 where
     R: Read + Seek
 {
-    if offset > 0 {
-        let mut buf = vec![];
+    let mut buf = vec![];
 
-        src.seek(SeekFrom::Start(offset * SECTOR_SIZE))?;
+    src.seek(SeekFrom::Start(offset * SECTOR_SIZE))?;
 
-        let mut r = BufReader::new(src.take(20 * SECTOR_SIZE));
-        let len = r.read_until(0, &mut buf)?;
+    let mut r = BufReader::new(src.take(20 * SECTOR_SIZE));
+    let len = r.read_until(0, &mut buf)?;
 
-        // read_until includes the delimiter
-        Ok(String::from_utf8_lossy(&buf[..(len - 1)]).into())
-    }
-    else {
-        Ok("".into())
-    }
+    // read_until includes the delimiter
+    Ok(String::from_utf8_lossy(&buf[..(len - 1)]).into())
 }
 
 pub fn read_descriptor_file<R>(
