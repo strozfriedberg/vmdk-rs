@@ -4,7 +4,7 @@ use std::{
     sync::LazyLock
 };
 
-use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
+use crate::errors::{DescriptorError, OpenErrorKind};
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -33,7 +33,7 @@ where
 
 pub fn read_descriptor_file<R>(
     src: R
-) -> Result<String, OpenError>
+) -> Result<String, OpenErrorKind>
 where
     R: Read
 {
@@ -56,12 +56,11 @@ where
                 return Ok(desc);
             },
             "" => line.clear(),
-            _ => return Err(OpenError {
-                path: "".into(),
-                kind: OpenErrorKind::DescriptorError(
+            _ => return Err(
+                OpenErrorKind::DescriptorError(
                     DescriptorError::UnrecognizedDescriptor
                 )
-            })
+            )
         }
     }
 }
@@ -119,12 +118,9 @@ Bogus crap
 
         assert!(matches!(
             read_descriptor_file(desc.as_bytes()).unwrap_err(),
-            OpenError {
-                path: _,
-                kind: OpenErrorKind::DescriptorError(
-                    DescriptorError::UnrecognizedDescriptor
-                )
-            }
+            OpenErrorKind::DescriptorError(
+                DescriptorError::UnrecognizedDescriptor
+            )
         ));
     }
 }
