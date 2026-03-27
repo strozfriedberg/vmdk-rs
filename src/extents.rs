@@ -299,7 +299,9 @@ pub fn read_extents(
         let filename = ed.filename();
 
         let ed_url = image_url.join(filename)
-            .map_err(|_| OpenErrorKind::BadPath(filename.into()))?;
+            .map_err(|_| OpenErrorKind::BadPath(filename.into()))
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(filename))?;
 
         let src = source_for_url(&ed_url, &runtime)
             .or_else(|e|
