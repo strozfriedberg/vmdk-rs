@@ -363,7 +363,7 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
                 .map_err(|e| DeserializationError("Vmdk4Header", e))?;
 
             if h.use_secondary() {
-                // secondary header 1024 bytes from the end of the file
+                // secondary header is 1024 bytes from the end of the file
                 src.seek(SeekFrom::End(-1024))?;
                 let ft = check_signature(&mut src)?;
                 src.seek(SeekFrom::End(-1024))?;
