@@ -1,19 +1,23 @@
-use kaitai::KStream;
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
-    cell::RefCell,
     collections::HashMap,
-    fs::{self, File},
-    path::Path
+    io::{Read, Seek, SeekFrom},
+    sync::{Arc, Mutex}
 };
+use tokio::runtime::Runtime;
+use tracing::info;
+use url::Url;
 
-use crate::extent_description::{
-    ExtentDescription,
-    ExtentDescriptionInner,
-    ExtentKind,
-    extract_extent_descriptions
+use crate::{
+    cache::Cache,
+    cachereadseek::CacheReadSeek,
+    errors::{OpenError, OpenErrorKind},
+    extent_description::{ExtentDescription, ExtentDescriptionInner},
+    header::{VmdkSparseMeta, VmdkSeSparseMeta, read_header_sparse, read_header_sesparse},
+    vmdk_reader::source_for_url,
+    readseek::ReadSeek,
+    storage::{ExtentStorage, FlatStorage, SparseStorage}
 };
-use crate::errors::{DescriptorError, IoError, OpenError};
-use crate::header::{VmdkSparseFileHeader, open_header};
 
 /*
 RW 8323072 FLAT "CentOS 3-f001.vmdk" 0
@@ -24,169 +28,252 @@ sector_start = 8323072, sectors = 2162688
 */
 
 #[derive(Debug)]
-pub struct SparseStorage {
-    pub file: RefCell<File>,
-    pub filename: String,
-    pub grain_table: HashMap<u64 /*sector*/, u64 /*real sector in file*/>,
-    // size size_grain * 512
-    pub grain_size: u64,
-    pub has_compressed_grain: bool,
-    pub zeroed_grain_table_entry: bool
-}
-
-#[derive(Debug)]
-pub struct FlatStorage {
-    pub file: RefCell<File>,
-    pub filename: String,
-    pub offset: u64
-}
-
-#[derive(Debug)]
-pub enum ExtentStorage {
-    Sparse(SparseStorage),
-    Flat(FlatStorage),
-    Zero
-}
-
-#[derive(Debug)]
 pub struct Extent {
     pub start_sector: u64,
     pub sectors: u64,
     pub storage: ExtentStorage
 }
 
-fn read_grain_table(
-    h: &VmdkSparseFileHeader,
-    kind: ExtentKind
-) -> Result<(HashMap<u64, u64>, u64), IoError> {
-    let size_grain_bytes = h.size_grain * 512;
-    let grain_table0_size = h.num_grain_table_entries as u64 * size_grain_bytes;
-    let size_max = h.size_max * 512;
-    let mut last_entry_special_size = false;
-    let mut number_of_grain_directory_entries = h.num_grain_table_entries as u64;
-
-    if kind == ExtentKind::Sparse {
-        number_of_grain_directory_entries = size_max / grain_table0_size;
-        if size_max % grain_table0_size > 0 {
-            last_entry_special_size = true;
-            number_of_grain_directory_entries += 1;
-        }
+impl Extent {
+    pub fn spans(&self) -> impl Iterator<Item = (u64, u64)> {
+        match &self.storage {
+            // Sparse storage is a collection of blocks of bytes.
+            // It need not cover the extent's whole space.
+            ExtentStorage::Sparse(storage) => storage.grain_table.keys()
+                .map(|goff| {
+                    // grain_size is in sectors
+                    let beg = self.start_sector + goff * storage.grain_size;
+                    let end = beg + storage.grain_size;
+                    (beg, end)
+                })
+                .collect::<Vec<_>>(),
+            // Flat and Zero storage are each a single block of bytes.
+            ExtentStorage::Flat(_) | ExtentStorage::Zero =>
+                vec![(self.start_sector, self.start_sector + self.sectors)]
+        }.into_iter()
     }
 
-    let mut grain_table_all = HashMap::new();
-    let mut grain_table_start_index = 0;
+    pub fn has_file(&self) -> bool {
+        !matches!(self.storage, ExtentStorage::Zero)
+    }
+}
 
-    // get and read metadata-0
-    h.io.seek(h.grain_dir as usize * 512)
-        .map_err(|e| IoError::SeekError(h.grain_dir as usize * 512, e))?;
+const SECTOR_SIZE: u64 = 512;
 
-    let grain_dir_entries: Vec<u64> =
-        h.io.read_bytes(number_of_grain_directory_entries as usize * 4)
-            .map_err(IoError::ReadError)?
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64 * 512)
-            .collect();
+fn read_grain_table_sparse<R>(
+    h: &VmdkSparseMeta,
+    start_sector: u64,
+    src: &mut R
+) -> Result<HashMap<u64, u64>, std::io::Error>
+where
+    R: Read + Seek
+{
+    // read level 1
+    src.seek(SeekFrom::Start(h.l1_offset))?;
 
-    // get and read metadata-1
-    for (i, grain_table_offset) in grain_dir_entries.iter().enumerate() {
-        let grain_table1_elems = if kind == ExtentKind::Sparse {
-            if last_entry_special_size && i == grain_dir_entries.len() - 1 {
-                let rest = size_max % grain_table0_size;
-                (rest / size_grain_bytes + if rest % size_grain_bytes > 0 { 1 } else { 0 })
-                    as usize
-            }
-            else {
-                h.num_grain_table_entries as usize
-            }
+    let l1_entries = (0..h.l1_len)
+        .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64 * SECTOR_SIZE))
+        .collect::<Result<Vec<u64>, std::io::Error>>()?;
+
+    // read level 2
+    let mut grain_table = HashMap::new();
+    let mut cur_sector = start_sector;
+    let end_sector = start_sector + h.sectors;
+
+    for l2_offset in l1_entries {
+        if cur_sector == end_sector {
+            // we've exhausted all the sectors; stop
+            break;
         }
-        else {
-            4096
-        };
 
-        if *grain_table_offset == 0 {
-            grain_table_start_index += grain_table1_elems as u64;
+        let l2_len = h.l2_len.min(h.sectors - (cur_sector - start_sector));
+
+        if l2_offset == 0 {
+            // the data for this entry is in the parent
+            cur_sector += l2_len;
             continue;
         }
 
-        h.io.seek(*grain_table_offset as usize)
-            .map_err(|e| IoError::SeekError(*grain_table_offset as usize, e))?;
+        src.seek(SeekFrom::Start(l2_offset))?;
 
-        let grain_table: Vec<u64> =
-            h.io.read_bytes(grain_table1_elems * 4)
-                .map_err(IoError::ReadError)?
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as u64)
-                .collect();
+        let l2_entries = (0..l2_len)
+            .map(|_| src.read_u32::<LittleEndian>().map(|e| e as u64))
+            .collect::<Result<Vec<u64>, std::io::Error>>()?;
 
-        for (i, grain) in grain_table.iter().enumerate() {
-            if *grain == 0 {
-                continue;
-            }
-            let old = grain_table_all.insert(grain_table_start_index + i as u64, *grain);
-            debug_assert!(old.is_none());
-        }
+        grain_table.extend(
+            l2_entries.iter()
+                .enumerate()
+                .filter(|(_, grain)| **grain != 0)
+                .map(|(i, grain)| (cur_sector + i as u64 , *grain))
+        );
 
-        grain_table_start_index += grain_table.len() as u64;
+        cur_sector += l2_len;
     }
 
-    Ok((grain_table_all, grain_table_start_index))
+    Ok(grain_table)
 }
 
-fn read_extent<T: AsRef<Path>>(
-    ed: &ExtentDescription,
-    image_path: T,
-    is_bin_and_singular: bool
-) -> Result<ExtentStorage, OpenError>
+fn read_grain_table_sesparse<R>(
+    h: &VmdkSeSparseMeta,
+    start_sector: u64,
+    src: &mut R
+) -> Result<HashMap<u64, u64>, std::io::Error>
+where
+    R: Read + Seek
 {
-    let filename = match &ed.kind {
-        ExtentDescriptionInner::Sparse { filename } |
-        ExtentDescriptionInner::Flat { filename, .. } |
-        ExtentDescriptionInner::Vmfs { filename } |
-        ExtentDescriptionInner::VmfsSparse { filename } => filename,
-        _ => todo!("TODO: {:?} support", ed.kind)
-    };
+    /*
+        SESPARSE extents differ from earlier sparse extent types:
 
-    let mut ed_fn = image_path.as_ref().with_file_name(filename);
-    if is_bin_and_singular && fs::metadata(&ed_fn).is_err() {
-        // if 1st filename is wrong and we are bin - try to use current file
-        ed_fn = image_path.as_ref().to_path_buf();
+            * table entries are 8 bytes instead of 4
+            * l1 entries are rather baroque; see below for how they're read
+            * l1 entries contain indices into the table of l2 tables, instead
+              of offsets to l2 tables
+
+        The only available reference implementation is QEMU's:
+
+            https://github.com/qemu/qemu/blob/master/block/vmdk.c
+
+        We've tried to document which values have which units.
+    */
+
+    // read level 1
+    src.seek(SeekFrom::Start(h.l1_offset))?;
+
+    let l1_entries = (0..h.l1_len)
+        .map(|_| src.read_u64::<LittleEndian>())
+        .collect::<Result<Vec<u64>, std::io::Error>>()?;
+
+    // read level 2
+    let mut grain_table = HashMap::new();
+    let mut cur_sector = start_sector;
+    let end_sector = start_sector + h.sectors;
+
+    // size in bytes of an l2 table
+    let l2_size = h.l2_len * 8;
+
+    for l1_entry in l1_entries {
+        if cur_sector == end_sector {
+            // we've exhausted all the sectors; stop
+            break;
+        }
+
+        let l2_len = h.l2_len.min(h.sectors - (cur_sector - start_sector));
+
+        // high nibble of l1 entries are 0 (unallocated) or 1 (allocated)
+
+        if l1_entry == 0 {
+            // Thank you Mario! But our princess is in another castle!
+            // (the data for this entry is in the parent)
+            cur_sector += l2_len;
+            continue;
+        }
+
+        if l1_entry & 0xF000000000000000 != 0x1000000000000000 {
+            return Err(std::io::Error::other("bad l1 entry"));
+        }
+
+        let l2_index = l1_entry & 0x0FFFFFFFFFFFFFFF;
+        let l2_offset = h.l2_tables_offset + l2_index * l2_size;
+
+        src.seek(SeekFrom::Start(l2_offset))?;
+
+        let l2_entries = (0..l2_len)
+            .map(|_| src.read_u64::<LittleEndian>())
+            .collect::<Result<Vec<u64>, std::io::Error>>()?;
+
+        for (i, &l2_entry) in l2_entries.iter().enumerate() {
+            if l2_entry == 0 {
+                // the data for this entry is in the parent
+                continue;
+            }
+
+            // cluster_offset is in sectors
+            let cluster_offset = match l2_entry & 0xF000000000000000 {
+                0x1000000000000000 | 0x2000000000000000 => {
+                    // zeroed grain
+                    1
+                },
+                0x3000000000000000 => {
+                    // allocted grain
+                    h.clusters_offset + (
+                        ((l2_entry & 0x0FFF000000000000) >> 48) |
+                        ((l2_entry & 0x0000FFFFFFFFFFFF) << 12)
+                    ) * h.cluster_sectors
+                },
+                _ => {
+                    // 0 in high nibble means unallocated grain, which
+                    // should not happen; anything else is also corrupt
+                    return Err(std::io::Error::other("bad l2 entry"));
+                }
+            };
+
+            grain_table.insert(cur_sector + i as u64, cluster_offset);
+        }
+
+        cur_sector += l2_len;
     }
 
-    let file = RefCell::new(File::open(&ed_fn)?);
-    let filename = ed_fn.to_string_lossy().to_string();
+    Ok(grain_table)
+}
+
+fn read_extent<R, F>(
+    ed: &ExtentDescription,
+    start_sector: u64,
+    filename: F,
+    mut src: R
+) -> Result<ExtentStorage, OpenError>
+where
+    R: Read + Seek + Clone + 'static,
+    F: Into<String>
+{
+    let filename = filename.into();
 
     Ok(match &ed.kind {
         ExtentDescriptionInner::Sparse { .. } |
         ExtentDescriptionInner::VmfsSparse { .. } => {
-            let header = open_header(&ed_fn)?;
-            let has_compressed_grain = header.has_compressed_grain;
-            let zeroed_grain_table_entry = header.zeroed_grain_table_entry;
-            let grain_size = header.size_grain;
-
-            let (grain_table, grain_table_start_index) = read_grain_table(
+            let header = read_header_sparse(src.clone())?;
+            let grain_table = read_grain_table_sparse(
                 &header,
-                (&ed.kind).into(),
+                start_sector,
+                &mut src
             )?;
 
             ExtentStorage::Sparse(SparseStorage {
-                file,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 grain_table,
-                grain_size,
-                has_compressed_grain,
-                zeroed_grain_table_entry
+                grain_size: header.cluster_sectors,
+                has_compressed_grain: header.compressed,
+                zeroed_grain_table_entry: header.has_zero_grain
+            })
+        },
+        ExtentDescriptionInner::SeSparse { .. } => {
+            let header = read_header_sesparse(src.clone())?;
+            let grain_table = read_grain_table_sesparse(
+                &header,
+                start_sector,
+                &mut src
+            )?;
+
+            ExtentStorage::Sparse(SparseStorage {
+                file: Box::new(src) as Box<dyn ReadSeek>,
+                filename,
+                grain_table,
+                grain_size: header.cluster_sectors,
+                has_compressed_grain: false,
+                zeroed_grain_table_entry: true
             })
         },
         ExtentDescriptionInner::Vmfs { .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 offset: 0
             })
         },
         ExtentDescriptionInner::Flat { offset, .. } => {
             ExtentStorage::Flat(FlatStorage {
-                file,
+                file: Box::new(src) as Box<dyn ReadSeek>,
                 filename,
                 offset: *offset
             })
@@ -195,44 +282,65 @@ fn read_extent<T: AsRef<Path>>(
     })
 }
 
-fn read_extents_impl<T: AsRef<Path>>(
-    image_path: T,
-    descriptor: &str,
-    is_bin: bool
-) -> Result<Vec<Extent>, OpenError> {
-    let eds = extract_extent_descriptions(descriptor)
-        .or(Err(DescriptorError::ParseExtentDescriptionError))?;
-
-    let is_bin_and_singular = is_bin && eds.len() == 1;
-
+pub fn read_extents(
+    image_url: &Url,
+    eds: &[ExtentDescription],
+    is_bin_and_singular: bool,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>,
+    mut idx: usize
+) -> Result<Vec<Extent>, OpenError>
+{
     let mut extents = vec![];
 
-    for i in eds {
-        extents.push(Extent {
-            sectors: i.sectors,
-            start_sector: 0,
-            storage: read_extent(&i, &image_path, is_bin_and_singular)?
-        });
-    }
+    let mut start_sector = 0;
 
-    for i in 1..extents.len() {
-        extents[i].start_sector = extents[i - 1].start_sector + extents[i - 1].sectors;
+    for ed in eds {
+        let filename = ed.filename();
+
+        let ed_url = image_url.join(filename)
+            .map_err(|_| OpenErrorKind::BadPath(filename.into()))
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(filename))?;
+
+        let src = source_for_url(&ed_url, &runtime)
+            .or_else(|e|
+                // if first filename is wrong and we are bin, try current file
+                if is_bin_and_singular && &ed_url != image_url {
+                    source_for_url(image_url, &runtime)
+                }
+                else {
+                    Err(e)
+                }
+            )?;
+
+        let seg_len = src.end();
+
+        cache.lock().expect("poisoned").add_source(idx, src);
+
+        let crs = CacheReadSeek::new(
+            cache.clone(),
+            runtime.clone(),
+            idx,
+            seg_len
+        );
+
+        let storage = read_extent(ed, start_sector, filename, crs)
+            .map_err(|e| e.with_path(ed_url))?;
+
+        extents.push(Extent {
+            sectors: ed.sectors,
+            start_sector,
+            storage
+        });
+
+        start_sector += ed.sectors;
+        idx += 1;
     }
 
     Ok(extents)
 }
 
-pub fn read_extents<T: AsRef<Path>>(
-    image_path: T,
-    descriptor: &str,
-    is_bin: bool
-) -> Result<Vec<Extent>, OpenError> {
-    read_extents_impl(&image_path, descriptor, is_bin)
-        .map_err(|e| e.with_path(&image_path))
-}
-
 #[cfg(test)]
 mod test {
-    use super::*;
-
 }

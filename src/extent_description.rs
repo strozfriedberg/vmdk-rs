@@ -27,13 +27,14 @@ impl FromStr for AccessMode {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ExtentKind {
-    Sparse,
     Flat,
-    Zero,
+    SeSparse,
+    Sparse,
     Vmfs,
     VmfsSparse,
     VmfsRdm,
     VmfsRaw,
+    Zero
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -46,13 +47,14 @@ impl FromStr for ExtentKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "SPARSE" => Ok(Self::Sparse),
             "FLAT" => Ok(Self::Flat),
-            "ZERO" => Ok(Self::Zero),
+            "SESPARSE" => Ok(Self::SeSparse),
+            "SPARSE" => Ok(Self::Sparse),
             "VMFS" => Ok(Self::Vmfs),
-            "VMFSSPARSE" => Ok(Self::VmfsSparse),
-            "VMFSRDM" => Ok(Self::VmfsRdm),
             "VMFSRAW" => Ok(Self::VmfsRaw),
+            "VMFSRDM" => Ok(Self::VmfsRdm),
+            "VMFSSPARSE" => Ok(Self::VmfsSparse),
+            "ZERO" => Ok(Self::Zero),
             _ => Err(ParseExtentKindError)
         }
     }
@@ -134,38 +136,42 @@ impl FromStr for ExtentDescriptionLine {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExtentDescriptionInner {
-    Sparse {
-        filename: String
-    },
     Flat {
         filename: String,
         offset: u64
     },
-    Zero,
+    SeSparse {
+        filename: String
+    },
+    Sparse {
+        filename: String
+    },
     Vmfs {
         filename: String
     },
-    VmfsSparse {
+    VmfsRaw {
         filename: String
     },
     VmfsRdm {
         filename: String
     },
-    VmfsRaw {
+    VmfsSparse {
         filename: String
-    }
+    },
+    Zero
 }
 
 impl From<&ExtentDescriptionInner> for ExtentKind {
     fn from(edi: &ExtentDescriptionInner) -> Self {
         match edi {
-            ExtentDescriptionInner::Sparse { .. } => ExtentKind::Sparse,
             ExtentDescriptionInner::Flat { .. } => ExtentKind::Flat,
-            ExtentDescriptionInner::Zero => ExtentKind::Zero,
+            ExtentDescriptionInner::SeSparse { .. } => ExtentKind::SeSparse,
+            ExtentDescriptionInner::Sparse { .. } => ExtentKind::Sparse,
             ExtentDescriptionInner::Vmfs { .. } => ExtentKind::Vmfs,
-            ExtentDescriptionInner::VmfsSparse { .. } => ExtentKind::VmfsSparse,
+            ExtentDescriptionInner::VmfsRaw { .. } => ExtentKind::VmfsRaw,
             ExtentDescriptionInner::VmfsRdm { .. } => ExtentKind::VmfsRdm,
-            ExtentDescriptionInner::VmfsRaw { .. } => ExtentKind::VmfsRaw
+            ExtentDescriptionInner::VmfsSparse { .. } => ExtentKind::VmfsSparse,
+            ExtentDescriptionInner::Zero => ExtentKind::Zero
         }
     }
 }
@@ -175,6 +181,19 @@ pub struct ExtentDescription {
     pub access_mode: AccessMode,
     pub sectors: u64,
     pub kind: ExtentDescriptionInner
+}
+
+impl ExtentDescription {
+    pub fn filename(&self) -> &str {
+        match &self.kind {
+            ExtentDescriptionInner::Sparse { filename } |
+            ExtentDescriptionInner::SeSparse { filename } |
+            ExtentDescriptionInner::Flat { filename, .. } |
+            ExtentDescriptionInner::Vmfs { filename } |
+            ExtentDescriptionInner::VmfsSparse { filename } => filename,
+            _ => todo!("TODO: {:?} support", self.kind)
+        }
+    }
 }
 
 impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
@@ -200,9 +219,19 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                 ExtentDescriptionLine {
                     kind: ExtentKind::Sparse,
                     filename: Some(filename),
-                    offset: None,
+// TODO: apparently 0 is possible here?
+//                   offset: None,
+                   offset: None | Some(0),
                     ..
                 } => ExtentDescriptionInner::Sparse { filename },
+                ExtentDescriptionLine {
+                    kind: ExtentKind::SeSparse,
+                    filename: Some(filename),
+// TODO: apparently 0 is possible here?
+//                   offset: None,
+                   offset: None | Some(0),
+                    ..
+                } => ExtentDescriptionInner::SeSparse { filename },
                 ExtentDescriptionLine {
                     kind: ExtentKind::Vmfs,
                     filename: Some(filename),
@@ -227,7 +256,7 @@ impl TryFrom<ExtentDescriptionLine> for ExtentDescription {
                     offset: None,
                     ..
                 } => ExtentDescriptionInner::VmfsRaw { filename },
-                _ => return Err(ParseExtentDescriptionError)
+                _ => Err(ParseExtentDescriptionError)?
             }
         })
     }
@@ -244,7 +273,7 @@ pub fn extract_extent_descriptions(
             Some((a, _)) if a.parse::<AccessMode>().is_ok() => {
                 eds.push(line.parse::<ExtentDescriptionLine>()?.try_into()?);
             },
-            _ => continue,
+            _ => continue
         }
     }
 
@@ -256,7 +285,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn read_extent_description_line_sparse() {
+    fn read_extent_description_line_sparse_rw() {
         let ed = r#"RW 4192256 SPARSE "test-f001.vmdk""#;
         assert_eq!(
             ed.parse::<ExtentDescriptionLine>().unwrap(),
@@ -265,6 +294,21 @@ mod test {
                 sectors: 4192256,
                 kind: ExtentKind::Sparse,
                 filename: Some("test-f001.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_sparse_ro() {
+        let ed = r#"RDONLY 2048 SPARSE "call-me-stream.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::RdOnly,
+                sectors: 2048,
+                kind: ExtentKind::Sparse,
+                filename: Some("call-me-stream.vmdk".into()),
                 offset: None
             }
         );
@@ -281,6 +325,51 @@ mod test {
                 kind: ExtentKind::Flat,
                 filename: Some("test-f001.vmdk".into()),
                 offset: Some(0)
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_vmfs() {
+        let ed = r#"RW 209715200 VMFS "vdisk-PhysicalDrive0-flat.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 209715200,
+                kind: ExtentKind::Vmfs,
+                filename: Some("vdisk-PhysicalDrive0-flat.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_vmfssparse() {
+        let ed = r#"RW 4096 VMFSSPARSE "vmfs_thick-000001-delta.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 4096,
+                kind: ExtentKind::VmfsSparse,
+                filename: Some("vmfs_thick-000001-delta.vmdk".into()),
+                offset: None
+            }
+        );
+    }
+
+    #[test]
+    fn read_extent_description_line_sesparse() {
+        let ed = r#"RW 314572800 SESPARSE "sesparse.vmdk""#;
+        assert_eq!(
+            ed.parse::<ExtentDescriptionLine>().unwrap(),
+            ExtentDescriptionLine {
+                access_mode: AccessMode::Rw,
+                sectors: 314572800,
+                kind: ExtentKind::SeSparse,
+                filename: Some("sesparse.vmdk".into()),
+                offset: None
             }
         );
     }
@@ -304,10 +393,8 @@ mod test {
 /*
 TODO: extent description tests for:
     ZERO,
-    VMFS,
-    VMFSSPARSE,
-    VMFSRDM,
-    VMFSRAW,
+    VMFSRDM
+    VMFSRAW
 
 TODO: What happens if the filename has a double quote in it?
 TODO: What happens if the filename has a space in it?

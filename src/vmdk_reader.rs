@@ -1,394 +1,391 @@
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use flate2::read::DeflateDecoder;
-use once_cell::sync::Lazy;
-use regex::Regex;
-use std::{
-    fs::{self, File},
-    io::{BufReader, BufRead, Read, Seek, SeekFrom},
-    path::{Path, PathBuf}
+use s3::{
+    bucket::Bucket,
+    creds::Credentials,
+    region::Region
 };
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    io::{self, Seek, SeekFrom},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex}
+};
+use tokio::runtime::Runtime;
+use tracing::debug;
+use url::Url;
 
-extern crate kaitai;
-
-use crate::errors::{DescriptorError, OpenError, OpenErrorKind};
-use crate::extents::{Extent, ExtentStorage, read_extents};
-use crate::header::open_header;
+use crate::{
+    bytessource::BytesSource,
+    cache::Cache,
+    cachereadseek::CacheReadSeek,
+    descriptor::{extract_parent_fn_hint, read_descriptor_file, read_descriptor_internal},
+    dummycache::DummyCache,
+    errors::{DescriptorError, InitError, OpenError, OpenErrorKind},
+    extents::{Extent, read_extents},
+    extent_description::extract_extent_descriptions,
+    foyercache::FoyerCache,
+    filesource::FileSource,
+    header::{check_signature, FileType, Vmdk4Header},
+    s3source::S3Source,
+    spans::{insert_span, remove_span},
+    storage::ExtentStorage
+};
 
 const SECTOR_SIZE: u64 = 512;
 
-#[derive(Debug)]
 pub struct VmdkReader {
-    image_size: u64,
-    extents: Vec<Vec<Extent>>
+    pub image_path: PathBuf,
+    pub image_size: u64,
+
+    spans: Vec<(u64, (u64, usize))>,
+    extents: Vec<Extent>,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>
 }
 
-fn read_descriptor<T: AsRef<Path>>(
-    image_path: T
-) -> Result<(String, bool), OpenError>
-{
-// FIXME: don't swallow errors from open_bin
-    match open_header(&image_path) {
-        Ok(header) => Ok((header.descriptor, true)),
-        Err(_) => {
-            // maybe this is a raw descriptor file
-            let f = File::open(&image_path)
-                .map_err(OpenError::from)
-                .map_err(|e| e.with_path(&image_path))?;
-
-            let f = BufReader::new(f);
-
-            for line in f.lines() {
-                let line = line
-                    .map_err(OpenError::from)
-                    .map_err(|e| e.with_path(&image_path))?;
-
-                match line.as_str() {
-                    "# Disk DescriptorFile" => break,
-                    "" => continue,
-                    _ => return Err(OpenError {
-                        path: image_path.as_ref().into(),
-                        kind: OpenErrorKind::DescriptorError(
-                            DescriptorError::UnrecognizedDescriptor
-                        )
-                    })
-                }
-            }
-
-            Ok((
-                fs::read_to_string(&image_path)
-                    .map_err(OpenError::from)
-                    .map_err(|e| e.with_path(&image_path))?,
-                false
-            ))
-
-        }
+impl Debug for VmdkReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VmdkReader")
+            .field("image_path", &self.image_path)
+            .field("image_size", &self.image_size)
+            .field("spans", &self.spans)
+            .finish()
     }
 }
 
-fn extract_parent_fn_hint(descriptor: &str) -> Option<String> {
-    static PAT: Lazy<Regex> = Lazy::new(||
-        Regex::new(r#"^parentFileNameHint="([^"]+)"#)
-            .expect("bad regex")
+#[derive(Debug, thiserror::Error)]
+pub enum ReadError {
+    #[error("Requested offset {0} is beyond end of image {1}")]
+    OffsetBeyondEnd(u64, u64),
+    #[error("Offset {0} not found")]
+    OffsetNotFound(u64),
+    #[error("{0}")]
+    IoError(#[from] io::Error)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VmdkError {
+    #[error("{0}")]
+    OpenError(#[from] OpenError),
+    #[error("{0}")]
+    ReadError(#[from] ReadError)
+}
+
+fn path_or_url_to_url<P: AsRef<str>>(p: P) -> Option<Url> {
+    match Url::parse(p.as_ref()) {
+        // might be a path; make it absolute and reparse
+        Err(url::ParseError::RelativeUrlWithoutBase) => Path::new(p.as_ref())
+            .canonicalize()
+            .map(Url::from_file_path)
+            .map_err(|_| ())
+// FIXME: use flatten after Rust 1.89
+//            .flatten()
+            .and_then(|r| r)
+            .ok(),
+        r => r.ok()
+    }
+}
+
+pub fn source_for_url(
+    url: &Url,
+    runtime: &Runtime
+) -> Result<Box<dyn BytesSource + Send>, OpenError>
+{
+    match url.scheme() {
+        "file" => {
+            let p = if cfg!(windows) {
+                // Windows file URLs get a spare / before the drive letter,
+                // which we have to remove when using it as a path.
+                url.path().trim_start_matches('/')
+            }
+            else {
+                url.path()
+            };
+
+            let len = std::fs::metadata(p)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(p))?
+                .len();
+            Ok(Box::new(FileSource { path: p.into(), len }))
+        },
+        "s3" => {
+            let name = url.host_str()
+                .ok_or(OpenErrorKind::BadPath(url.to_string()))?;
+
+            let bucket = *Bucket::new(
+                name,
+                Region::UsEast1,
+                Credentials::anonymous().unwrap()
+            )
+            .map_err(std::io::Error::other)
+            .map_err(OpenError::from)
+            .map_err(|e| e.with_path(url))?;
+
+            let key = url.path();
+
+            let (h, code) = runtime.block_on(bucket.head_object(key))
+                .map_err(std::io::Error::other)
+                .map_err(OpenError::from)
+                .map_err(|e| e.with_path(url))?;
+
+            assert_eq!(code, 200);
+            let len = h.content_length.unwrap().try_into().unwrap();
+            debug!("content-length: {len}");
+
+            Ok(Box::new(S3Source::new(bucket, key.into(), len)))
+        },
+        _ => Err(OpenErrorKind::UnsupportedScheme(url.to_string()).into())
+    }
+}
+
+fn handle_image(
+    current_url: &Url,
+    mut idx: usize,
+    cache: Arc<Mutex<dyn Cache + Send>>,
+    runtime: Arc<Runtime>
+) -> Result<(Vec<Extent>, Option<Url>), OpenError>
+{
+    let src = source_for_url(current_url, &runtime)?;
+    let seg_len = src.end();
+
+    cache.lock().expect("poisoned").add_source(idx, src);
+
+    let mut crs = CacheReadSeek::new(
+        cache.clone(),
+        runtime.clone(),
+        idx,
+        seg_len
     );
 
-    for line in descriptor.lines() {
-        if let Some(captures) = PAT.captures(line) {
-            return Some(captures[1].to_string());
-        }
-    }
-    None
-}
+    idx += 1;
 
-fn extent_for_offset<'a>(
-    extents: &'a [Extent],
-    offset: u64
-) -> Option<&'a Extent> {
-    let sector = offset / 512;
-    let i = extents.partition_point(|ex| ex.start_sector <= sector);
+    // determine what we're reading
+    let ft = check_signature(&mut crs)?;
 
-    match i {
-        // offset before first extent
-        0 => None,
-        // offset is in extent i-1
-        i if sector < extents[i-1].start_sector + extents[i-1].sectors => Some(&extents[i-1]),
-        // offset is in a gap between extents i-1 and i
-        _ => None
-    }
-}
+    // get the descriptor
+    let descriptor = match ft {
+        // this has an internal descriptor
+        Some(FileType::Vmdk4) => {
+            let p = crs.seek(SeekFrom::Start(0))?;
+            let mut h = Vmdk4Header::from_reader(&mut crs)?;
 
-// We're going off the rails on a crazy grain
-#[derive(Debug, thiserror::Error)]
-#[error("Sanity check failed for grain index {0}")]
-struct CrazyGrainIndex(u64);
+            if h.use_secondary() {
+                crs.seek(SeekFrom::End(-1024))?;
+                h = Vmdk4Header::from_reader(&mut crs)?;
+            }
 
-fn read_and_decompress_grain(
-    file: &mut File,
-    grain_index: u64,
-) -> std::io::Result<Vec<u8>> {
-
-    #[derive(Debug)]
-    struct CompressedGrainHeader {
-        _lba: u64,
-        data_size: u32,
-    }
-
-    let cgh = CompressedGrainHeader {
-        _lba: file.read_u64::<LittleEndian>()?,
-        data_size: file.read_u32::<LittleEndian>()?,
+            if h.desc_offset > 0 {
+                read_descriptor_internal(&mut crs, h.desc_offset)?
+            }
+            else {
+                "".into()
+            }
+        },
+        // this is a descriptor file
+        None => {
+            crs.seek(SeekFrom::Start(0))?;
+            read_descriptor_file(&mut crs)?
+        },
+        // this is bogus
+        _ => return Err(DescriptorError::ParseExtentDescriptionError.into())
     };
 
-    let header: u16 = file.read_u16::<BigEndian>()?;
+    // get the extent descriptions
+    let eds = extract_extent_descriptions(&descriptor)
+        .or(Err(DescriptorError::ParseExtentDescriptionError))?;
 
-    // sanity check against expected zlib stream header values...
-    if header % 31 != 0 || header & 0x0F00 != 8 << 8 || header & 0x0020 != 0 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            CrazyGrainIndex(grain_index)
-        ));
-    }
+    let is_bin_and_singular = ft == Some(FileType::Vmdk4) && eds.len() == 1;
 
-    let mut buffer = vec![0u8; cgh.data_size as usize];
-    file.read_exact(buffer.as_mut_slice())?;
+    // read each extent
+    let extents = read_extents(
+        current_url,
+        &eds,
+        is_bin_and_singular,
+        cache.clone(),
+        runtime.clone(),
+        idx
+    )?;
 
-    let mut decoder = DeflateDecoder::new(&*buffer.as_mut_slice());
-    let mut decoded_data = vec![];
-    decoder.read_to_end(&mut decoded_data)?;
+    // find the parent image, if any
+    let parent_url = extract_parent_fn_hint(&descriptor)
+        .map(|p| current_url.join(&p)
+            .map_err(|_| OpenErrorKind::BadPath(p))
+        )
+        .transpose()?;
 
-    Ok(decoded_data)
+    Ok((extents, parent_url))
 }
 
 impl VmdkReader {
-    pub fn open<T: AsRef<Path>>(
+    pub fn open<T: AsRef<str>>(
         image_path: T
     ) -> Result<Self, OpenError>
     {
-        let mut total_size = 0;
+        let mut current_url = path_or_url_to_url(&image_path)
+            .ok_or(OpenErrorKind::BadPath(image_path.as_ref().into()))?;
+
+        let runtime = Arc::new(
+            tokio::runtime::Runtime::new()
+                .map_err(InitError::TokioRuntimeFailed)
+                .map_err(OpenErrorKind::from)?
+        );
+
+//        let c = DummyCache::new();
+
+        let cache_chunk_size = 1024 * 1024;
+        let cache_mem_size = 256;
+        let cache_disk_size = if current_url.scheme() == "s3" { 256 } else { 0 };
+        let c = runtime.block_on(
+            FoyerCache::with_default_cache(
+                cache_chunk_size,
+                cache_mem_size,
+                cache_disk_size,
+                0
+            )
+        )
+        .map_err(InitError::CacheSetupFailed)
+        .map_err(OpenErrorKind::from)?;
+
+        let cache = Arc::new(Mutex::new(c));
+
+        let mut idx = 0;
+        let mut spans: BTreeMap<u64, (u64, usize)> = BTreeMap::new();
+        let mut uncovered: BTreeMap<u64, u64> = BTreeMap::new();
         let mut extents = vec![];
-        let mut current_fn = PathBuf::from(image_path.as_ref());
+        let mut image_size = None;
 
-        loop {
-            let (descriptor, is_bin) = read_descriptor(&current_fn)?;
-            let extents0 = read_extents(&current_fn, &descriptor, is_bin)?;
+        let image_size = 'img_loop: loop {
+            let (img_extents, parent_url) = handle_image(
+                &current_url,
+                idx,
+                cache.clone(),
+                runtime.clone()
+            )?;
 
-            let total_size0 = extents0.iter().fold(0, |acc, i| acc + i.sectors) * 512;
-            if total_size == 0 {
-                total_size = total_size0;
+            idx += 1;
+
+            // size for all images must match
+            let size = img_extents.iter()
+                .fold(0, |acc, i| acc + i.sectors) * SECTOR_SIZE;
+
+            if image_size.is_none() {
+                image_size = Some(size);
+                let sec_end = size.div_ceil(SECTOR_SIZE);
+                uncovered.insert(0, sec_end);
             }
-            else if total_size != total_size0 {
+            else if let Some(s) = image_size && s != size {
                 return Err(OpenError {
-                    path: current_fn,
+                    path: current_url.as_ref().into(),
                     kind: OpenErrorKind::BadParentExtentDescriptorSize(
-                        total_size, total_size0
+                        s, size
                     )
                 });
             }
 
-            extents.push(extents0);
+            // add the extents for this image to the span map
+            for ex in img_extents {
+                for (beg, end) in ex.spans() {
+                    insert_span(beg, end, extents.len(), &mut spans);
+                    remove_span(beg, end, &mut uncovered);
+                }
 
-            if let Some(next_fn) = extract_parent_fn_hint(&descriptor) {
-                current_fn.set_file_name(next_fn);
+                if ex.has_file() {
+                    idx += 1;
+                }
+
+                extents.push(ex);
+
+                // stop if we have extents for all spans
+                if uncovered.is_empty() {
+                    break 'img_loop size;
+                }
             }
-            else {
-                break;
-            }
+
+            // keep going if we are not at the end of the image chain
+            let Some(parent_url) = parent_url else { break 'img_loop size; };
+            current_url = parent_url;
+        };
+
+        // fill missing spans with zeros
+        for (lb, ub) in uncovered {
+            debug!("zero-filling uncovered span [{}, {})", lb, ub);
+
+            let ex = Extent {
+                start_sector: lb,
+                sectors: ub - lb,
+                storage: ExtentStorage::Zero
+            };
+
+            insert_span(lb, ub, extents.len(), &mut spans);
+
+            extents.push(ex);
         }
 
+        // spans are in bytes from here onward
+        let spans = spans.into_iter()
+            .map(|(lb, (ub, i))| (lb * SECTOR_SIZE, (ub * SECTOR_SIZE, i)))
+            .collect::<Vec<_>>();
+
         Ok(Self {
-            image_size: total_size,
+            image_path: image_path.as_ref().into(),
+            image_size,
+            spans,
             extents,
+            cache,
+            runtime
         })
     }
 
     pub fn read_at_offset(
-        &self,
+        &mut self,
         mut offset: u64,
-        buf: &mut [u8]
-    ) -> std::io::Result<usize>
+        mut buf: &mut [u8]
+    ) -> Result<usize, ReadError>
     {
-        let mut bytes_read = 0;
-        let mut grain_size = 0;
-        let mut eof = false;
+        let beg = offset;
 
-        while bytes_read < buf.len() && !eof {
-            for (ex_pos, ex) in self.extents.iter().enumerate() {
-                let Some(extent) = extent_for_offset(ex, offset) else {
-                    eof = true;
-                    break;
-                };
+        // don't start reading past the end
+        let image_end = self.image_size;
+        if beg > image_end {
+            return Err(ReadError::OffsetBeyondEnd(beg, self.image_size));
+        }
 
-                let local_offset = offset - extent.start_sector * 512;
+        // limit the buffer to the image end
+        if beg + buf.len() as u64 > image_end {
+            buf = &mut buf[..(image_end - beg) as usize];
+        }
 
-                let remaining_buf = &mut buf[bytes_read..];
-                let remaining_size = remaining_buf.len();
-                let remaining_grain_size;
+        let end = beg + buf.len() as u64;
 
-                match &extent.storage {
-                    ExtentStorage::Sparse(storage) => {
-                        grain_size = storage.grain_size * SECTOR_SIZE;
+        let mut i = match self.spans.binary_search_by_key(&beg, |e| e.0) {
+            Ok(i) => i,
+            // 0 is impossible as an insertion point because
+            // there must be a span staring at 0
+            Err(0) => unreachable!(),
+            Err(i) => i - 1
+        };
 
-                        remaining_grain_size = if grain_size > 0 {
-                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                        }
-                        else {
-                            remaining_size
-                        };
+        while offset < end {
+            let span = self.spans[i];
+            let span_end = span.1.0;
+            let r = ((span_end - offset) as usize).min(buf.len());
+            let ex = &mut self.extents[span.1.1];
 
-                        // calculate grain index and offset
-                        let grain_index = offset / grain_size;
-                        let grain_data_offset = (offset % grain_size) as usize;
+            let r = ex.storage.read(offset, &mut buf[..r])?;
 
-                        match storage.grain_table.get(&grain_index) {
-                            None => {
-                                // if this is last vmdk-file
-                                if ex_pos == self.extents.len() - 1 {
-                                    remaining_buf[..remaining_grain_size].fill(0);
-                                }
-                                else {
-                                    // check in next
-                                    continue;
-                                }
-                            },
-                            Some(sector_num) => {
-                                // handle zero GTE
-                                if storage.zeroed_grain_table_entry && *sector_num == 1 {
-                                    remaining_buf[..remaining_grain_size].fill(0);
-                                }
-                                else {
-                                    let seek_pos = *sector_num * SECTOR_SIZE;
-                                    storage.file
-                                        .borrow_mut()
-                                        .seek(SeekFrom::Start(seek_pos))?;
-                                    let grain_data = if storage.has_compressed_grain {
-                                        read_and_decompress_grain(&mut storage.file.borrow_mut(), grain_index)?
-                                    }
-                                    else {
-                                        // calculate real sector and read whole grain
-                                        let mut data = vec![0u8; grain_size as usize];
-                                        storage.file.borrow_mut().read_exact(&mut data)?;
-                                        data
-                                    };
-                                    remaining_buf[..remaining_grain_size].clone_from_slice(
-                                        &grain_data[grain_data_offset
-                                            ..grain_data_offset + remaining_grain_size],
-                                    );
-                                }
-                            }
-                        }
-                    },
-                    ExtentStorage::Flat(storage) => {
-                        remaining_grain_size = if grain_size > 0 {
-                            remaining_size.min((grain_size - (local_offset % grain_size)) as usize)
-                        }
-                        else {
-                            remaining_size
-                        };
+            offset += r as u64;
+            buf = &mut buf[r..];
 
-                        // FLAT, VMFS
-
-                        let mut f = storage.file.borrow_mut();
-
-                        // NB: only ExtentKind::Flat has nonzero offset
-                        f.seek(SeekFrom::Start(local_offset + storage.offset))?;
-                        f.read_exact(&mut remaining_buf[..remaining_grain_size])?;
-                    },
-                    ExtentStorage::Zero => todo!("ZERO support")
-                }
-
-                bytes_read += remaining_grain_size;
-                offset += remaining_grain_size as u64;
-                // look for next piece of data from the first extent descriptor
-                break;
+            if offset >= span_end {
+                // advance to the next span to read more
+                i += 1;
             }
         }
 
-        Ok(bytes_read)
-    }
-
-    pub fn total_size(&self) -> u64 {
-        self.image_size
+        Ok((end - beg) as usize)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
-    #[test]
-    fn test_extent_for_offset() {
-        let exts = [
-            Extent {
-                start_sector: 0,
-                sectors: 10,
-                storage: ExtentStorage::Zero
-            },
-            Extent {
-                start_sector: 10,
-                sectors: 5,
-                storage: ExtentStorage::Zero
-            },
-            Extent {
-                start_sector: 15,
-                sectors: 5,
-                storage: ExtentStorage::Zero
-            }
-        ];
-
-        // start of 0
-        assert!(matches!(
-            extent_for_offset(&exts, 0),
-            Some(
-                Extent {
-                    start_sector: 0,
-                    sectors: 10,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 0
-        assert!(matches!(
-            extent_for_offset(&exts, 9 * 512),
-            Some(
-                Extent {
-                    start_sector: 0,
-                    sectors: 10,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // start of 1
-        assert!(matches!(
-            extent_for_offset(&exts, 10 * 512),
-            Some(
-                Extent {
-                    start_sector: 10,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 1
-        assert!(matches!(
-            extent_for_offset(&exts, 14 * 512),
-            Some(
-                Extent {
-                    start_sector: 10,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // start of 2
-        assert!(matches!(
-            extent_for_offset(&exts, 15 * 512),
-            Some(
-                Extent {
-                    start_sector: 15,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // end of 2
-        assert!(matches!(
-            extent_for_offset(&exts, 19 * 512),
-            Some(
-                Extent {
-                    start_sector: 15,
-                    sectors: 5,
-                    storage: ExtentStorage::Zero
-                }
-            )
-        ));
-
-        // past the end
-        assert!(matches!(
-            extent_for_offset(&exts, 20 * 512),
-            None
-        ));
-    }
 }
