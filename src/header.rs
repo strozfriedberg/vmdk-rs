@@ -10,6 +10,7 @@ const SECTOR_SIZE: u64 = 512;
 
 #[derive(Debug)]
 struct Vmdk3Header {
+    magic: [u8; 4],
     version: u32,
     flags: u32,
     disk_sectors: u32, // size of data in sectors
@@ -26,6 +27,11 @@ impl Vmdk3Header {
     fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
         Ok(
             Self {
+                magic: {
+                    let mut m = [0; 4];
+                    r.read_exact(&mut m)?;
+                    m
+                },
                 version: r.read_u32::<LittleEndian>()?,
                 flags: r.read_u32::<LittleEndian>()?,
                 disk_sectors: r.read_u32::<LittleEndian>()?,
@@ -43,6 +49,7 @@ impl Vmdk3Header {
 
 #[derive(Debug)]
 pub struct Vmdk4Header {
+    magic: [u8; 4],
     version: u32,
     flags: u32,
     capacity: u64,        // size of data in sectors
@@ -59,9 +66,14 @@ pub struct Vmdk4Header {
 }
 
 impl Vmdk4Header {
-    fn from_reader_inner<R: Read>(r: &mut R) -> std::io::Result<Self> {
+    pub fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
         Ok(
             Self {
+                magic: {
+                    let mut m = [0; 4];
+                    r.read_exact(&mut m)?;
+                    m
+                },
                 version: r.read_u32::<LittleEndian>()?,
                 flags: r.read_u32::<LittleEndian>()?,
                 capacity: r.read_u64::<LittleEndian>()?,
@@ -83,27 +95,18 @@ impl Vmdk4Header {
         )
     }
 
-    pub fn from_reader<R: Read + Seek>(
-        r: &mut R
-    ) -> std::io::Result<Self> {
-        let h = Self::from_reader_inner(r)?;
-
-        if h.gd_offset == 0xFFFFFFFFFFFFFFFF && h.compress_algorithm == 1 {
-            // If the grain directory sector number value is -1
-            // (0xFFFFFFFFFFFFFFFF) (GD_AT_END) in a Stream-Optimized Compressed
-            // Sparse Extent there should be a secondary file header stored at
-            // offset -1024 relative from the end of the file (stream)
-            r.seek(SeekFrom::End(-1024))?;
-            Self::from_reader_inner(r)
-        }
-        else {
-            Ok(h)
-        }
+    pub fn use_secondary(&self) -> bool {
+        // If the grain directory sector number value is -1
+        // (0xFFFFFFFFFFFFFFFF) (GD_AT_END) in a Stream-Optimized
+        // Compressed Sparse Extent there should be a secondary file
+        // header 1024 bytes from the end of the file
+        self.gd_offset == 0xFFFFFFFFFFFFFFFF && self.compress_algorithm == 1
     }
 }
 
 #[derive(Debug)]
 struct VmdkSeSparseConstHeader {
+    magic: [u8; 8],
     version: u64,
     capacity: u64,                  // total number of sectors
     grain_size: u64,                // number of sectors per l2 entry
@@ -136,6 +139,11 @@ impl VmdkSeSparseConstHeader {
     fn from_reader<R: Read>(r: &mut R) -> std::io::Result<Self> {
         Ok(
             Self {
+                magic: {
+                    let mut m = [0; 8];
+                    r.read_exact(&mut m)?;
+                    m
+                },
                 version: r.read_u64::<LittleEndian>()?,
                 capacity: r.read_u64::<LittleEndian>()?,
                 grain_size: r.read_u64::<LittleEndian>()?,
@@ -340,13 +348,8 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
 ) -> Result<VmdkSparseMeta, OpenErrorKind>
 {
     src.seek(SeekFrom::Start(0))?;
-
     let ft = check_signature(&mut src)?;
-
-    if let Some(ft) = &ft {
-        // return to end of signature
-        src.seek(SeekFrom::Start(ft.sig_len() as u64))?;
-    }
+    src.seek(SeekFrom::Start(0))?;
 
     let mut src = Box::new(src) as Box<dyn ReadSeek>;
 
@@ -355,10 +358,24 @@ pub fn read_header_sparse<T: Read + Seek + Clone + 'static>(
             Vmdk3Header::from_reader(&mut src)
                 .map_err(|e| DeserializationError("Vmdk3Header", e))?
                 .try_into(),
-        Some(FileType::Vmdk4) =>
-            Vmdk4Header::from_reader(&mut src)
-                .map_err(|e| DeserializationError("Vmdk4Header", e))?
-                .try_into(),
+        Some(FileType::Vmdk4) => {
+            let h = Vmdk4Header::from_reader(&mut src)
+                .map_err(|e| DeserializationError("Vmdk4Header", e))?;
+
+            if h.use_secondary() {
+                // secondary header 1024 bytes from the end of the file
+                src.seek(SeekFrom::End(-1024))?;
+                let ft = check_signature(&mut src)?;
+                src.seek(SeekFrom::End(-1024))?;
+
+                Vmdk4Header::from_reader(&mut src)
+                    .map_err(|e| DeserializationError("Vmdk4Header", e))?
+            }
+            else {
+                h
+            }
+            .try_into()
+        },
         _ => Err(OpenErrorKind::InvalidFileHeader)
     }
 }
@@ -368,13 +385,8 @@ pub fn read_header_sesparse<T: Read + Seek + Clone + 'static>(
 ) -> Result<VmdkSeSparseMeta, OpenErrorKind>
 {
     src.seek(SeekFrom::Start(0))?;
-
     let ft = check_signature(&mut src)?;
-
-    if let Some(ft) = &ft {
-        // return to end of signature
-        src.seek(SeekFrom::Start(ft.sig_len() as u64))?;
-    }
+    src.seek(SeekFrom::Start(0))?;
 
     if let Some(FileType::VmdkSeSparse) = ft {
         let mut src = Box::new(src) as Box<dyn ReadSeek>;

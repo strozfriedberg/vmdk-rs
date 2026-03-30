@@ -166,8 +166,14 @@ fn handle_image(
     let descriptor = match ft {
         // this has an internal descriptor
         Some(FileType::Vmdk4) => {
-            crs.seek(SeekFrom::Start(FileType::Vmdk4.sig_len() as u64))?;
-            let h = Vmdk4Header::from_reader(&mut crs)?;
+            let p = crs.seek(SeekFrom::Start(0))?;
+            let mut h = Vmdk4Header::from_reader(&mut crs)?;
+
+            if h.use_secondary() {
+                crs.seek(SeekFrom::End(-1024))?;
+                h = Vmdk4Header::from_reader(&mut crs)?;
+            }
+
             if h.desc_offset > 0 {
                 read_descriptor_internal(&mut crs, h.desc_offset)?
             }
